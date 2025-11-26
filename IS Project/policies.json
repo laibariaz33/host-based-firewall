@@ -1,0 +1,94 @@
+[
+  {
+    "id": "default_security",
+    "name": "Default Security Policy",
+    "policy_type": "SECURITY",
+    "description": "Basic security policy for common threats",
+    "rules": [
+      {
+        "type": "block",
+        "pattern": "malicious_ip",
+        "action": "DENY"
+      },
+      {
+        "type": "rate_limit",
+        "threshold": 100,
+        "action": "ALERT"
+      }
+    ],
+    "conditions": [
+      {
+        "field": "source_ip",
+        "operator": "in",
+        "value": "blacklist"
+      },
+      {
+        "field": "packet_rate",
+        "operator": ">",
+        "value": 100
+      }
+    ],
+    "actions": [
+      "DENY",
+      "ALERT"
+    ],
+    "priority": 100,
+    "enabled": true,
+    "created_at": "2025-10-22T23:59:25.034501",
+    "updated_at": "2025-10-22T23:59:25.034504",
+    "expires_at": null
+  },
+  {
+    "id": "network_compliance",
+    "name": "Network Compliance Policy",
+    "policy_type": "COMPLIANCE",
+    "description": "Ensure network traffic compliance",
+    "rules": [
+      {
+        "type": "port_restriction",
+        "allowed_ports": [
+          80,
+          443,
+          22,
+          21
+        ]
+      },
+      {
+        "type": "protocol_restriction",
+        "allowed_protocols": [
+          "TCP",
+          "UDP"
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "field": "destination_port",
+        "operator": "not_in",
+        "value": [
+          80,
+          443,
+          22,
+          21
+        ]
+      },
+      {
+        "field": "protocol",
+        "operator": "not_in",
+        "value": [
+          "TCP",
+          "UDP"
+        ]
+      }
+    ],
+    "actions": [
+      "DENY",
+      "LOG"
+    ],
+    "priority": 200,
+    "enabled": true,
+    "created_at": "2025-10-22T23:59:25.034514",
+    "updated_at": "2025-10-22T23:59:25.034514",
+    "expires_at": null
+  }
+]

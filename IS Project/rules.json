@@ -1,0 +1,14 @@
+[
+    {
+        "action": "block",
+        "protocol": "tcp",
+        "dst_port": 80,
+        "description": "Block HTTP traffic"
+    },
+    {
+        "action": "allow",
+        "protocol": "tcp",
+        "dst_port": 443,
+        "description": "Allow HTTPS traffic"
+    }
+]

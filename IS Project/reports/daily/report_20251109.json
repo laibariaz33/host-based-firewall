@@ -1,0 +1,109 @@
+{
+  "generated_at": "2025-11-09T21:46:35.895422",
+  "period": "daily",
+  "summary": {
+    "total_events": 76,
+    "total_bytes": 0,
+    "total_blocked": 0,
+    "unique_src": 10,
+    "unique_dst": 13
+  },
+  "time_series": [
+    {
+      "date": "2025-11-10",
+      "events": 76,
+      "bytes": 0
+    }
+  ],
+  "top_src": [
+    {
+      "src_ip": "192.168.1.104",
+      "events": 28
+    },
+    {
+      "src_ip": "192.168.1.102",
+      "events": 12
+    },
+    {
+      "src_ip": "192.168.1.107",
+      "events": 8
+    },
+    {
+      "src_ip": "142.250.202.228",
+      "events": 6
+    },
+    {
+      "src_ip": "104.18.39.21",
+      "events": 4
+    },
+    {
+      "src_ip": "172.64.155.209",
+      "events": 4
+    },
+    {
+      "src_ip": "192.168.1.112",
+      "events": 4
+    },
+    {
+      "src_ip": "192.168.1.1",
+      "events": 4
+    },
+    {
+      "src_ip": "172.188.155.25",
+      "events": 2
+    },
+    {
+      "src_ip": "192.168.1.103",
+      "events": 2
+    }
+  ],
+  "top_dst": [
+    {
+      "dst_ip": "224.0.0.251",
+      "events": 20
+    },
+    {
+      "dst_ip": "192.168.1.104",
+      "events": 16
+    },
+    {
+      "dst_ip": "224.0.0.252",
+      "events": 8
+    },
+    {
+      "dst_ip": "239.255.255.250",
+      "events": 6
+    },
+    {
+      "dst_ip": "142.250.202.228",
+      "events": 6
+    },
+    {
+      "dst_ip": "172.64.155.209",
+      "events": 4
+    },
+    {
+      "dst_ip": "172.188.155.25",
+      "events": 2
+    },
+    {
+      "dst_ip": "104.18.39.21",
+      "events": 2
+    },
+    {
+      "dst_ip": "142.251.38.42",
+      "events": 2
+    },
+    {
+      "dst_ip": "224.0.0.1",
+      "events": 2
+    }
+  ],
+  "top_blocked_src": [],
+  "top_rules": [],
+  "images": [
+    "images\\time_series_20251109.png",
+    "images\\top_dst_20251109.png",
+    "images\\top_src_20251109.png"
+  ]
+}
