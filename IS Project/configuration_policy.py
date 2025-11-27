@@ -52,49 +52,139 @@ class Policy:
 
 @dataclass
 class FirewallConfig:
-    """Firewall configuration settings"""
-    # General settings
-    firewall_enabled: bool = True
-    default_action: str = "ALLOW"
-    log_level: str = "INFO"
-    max_connections: int = 1000
-    connection_timeout: int = 300
+    """Firewall configuration settings with validation"""
     
-    # Security settings
-    enable_stateful_inspection: bool = True
-    enable_intrusion_detection: bool = True
-    enable_dos_protection: bool = True
-    max_packets_per_second: int = 10000
+    def __init__(self):
+        # General settings
+        self.firewall_enabled = True
+        self.default_action = "ALLOW"
+        self.log_level = "INFO"
+        self.max_connections = 1000
+        self.connection_timeout = 300
+        
+        # Security settings
+        self.enable_stateful_inspection = True
+        self.enable_intrusion_detection = True
+        self.enable_dos_protection = True
+        self._max_packets_per_second = 10000  # Private with validation
+        
+        # Logging settings
+        self.log_packets = True
+        self.log_connections = True
+        self.log_security_events = True
+        self.log_retention_days = 30
+        
+        # Performance settings
+        self.packet_buffer_size = 1000
+        self.rule_evaluation_timeout = 0.1
+        self.cleanup_interval = 60
+        
+        # Network settings
+        self.trusted_networks = []
+        self.blocked_networks = []
+        self.allowed_ports = [80, 443, 53]
+        self.blocked_ports = []
+        
+        # Feature flags
+        self.enable_demo_rules = False
     
-    # Logging settings
-    log_packets: bool = True
-    log_connections: bool = True
-    log_security_events: bool = True
-    log_retention_days: int = 30
+    @property
+    def max_packets_per_second(self):
+        """Get max packets per second with validation"""
+        return self._max_packets_per_second
     
-    # Performance settings
-    packet_buffer_size: int = 1000
-    rule_evaluation_timeout: float = 0.1
-    cleanup_interval: int = 60
-    
-    # Network settings
-    trusted_networks: List[str] = None
-    blocked_networks: List[str] = None
-    allowed_ports: List[int] = None
-    blocked_ports: List[int] = None
-    # Feature flags
-    enable_demo_rules: bool = False
-    
-    def __post_init__(self):
-        if self.trusted_networks is None:
-            self.trusted_networks = []
-        if self.blocked_networks is None:
-            self.blocked_networks = []
-        if self.allowed_ports is None:
-            self.allowed_ports = [80, 443, 53]
-        if self.blocked_ports is None:
-            self.blocked_ports = []
+    @max_packets_per_second.setter
+    def max_packets_per_second(self, value):
+        """Set max packets per second with validation"""
+        try:
+            val = int(value)
+            if val < 1:
+                raise ValueError("Must be at least 1")
+            if val > 1000000:
+                raise ValueError("Maximum is 1,000,000")
+            self._max_packets_per_second = val
+        except (ValueError, TypeError) as e:
+            print(f"Warning: Invalid max_packets_per_second value: {value}, using 10000")
+            self._max_packets_per_second = 10000
 
+
+# =============================================================================
+# UPDATED: ConfigurationManager with proper locking
+# =============================================================================
+
+class ConfigurationManager:
+    """Manages firewall configuration with thread-safe updates"""
+    
+    def __init__(self, config_file: str = "firewall_config.json"):
+        import os
+        base_dir = os.path.dirname(__file__) if __file__ else '.'
+        self.config_file = os.path.join(base_dir, config_file)
+        self.config = FirewallConfig()
+        self.config_lock = threading.RLock()
+        self.load_configuration()
+    
+    def get_config(self) -> FirewallConfig:
+        """Get current configuration (thread-safe)"""
+        with self.config_lock:
+            return self.config
+    
+    def update_config(self, **kwargs) -> bool:
+        """Update configuration settings (thread-safe)"""
+        try:
+            with self.config_lock:
+                for key, value in kwargs.items():
+                    if hasattr(self.config, key):
+                        setattr(self.config, key, value)
+                return self.save_configuration()
+        except Exception as e:
+            print(f"Error updating configuration: {e}")
+            return False
+    
+    def save_configuration(self) -> bool:
+        """Save configuration to file"""
+        import json
+        try:
+            with self.config_lock:
+                config_dict = {
+                    'firewall_enabled': self.config.firewall_enabled,
+                    'default_action': self.config.default_action,
+                    'log_level': self.config.log_level,
+                    'enable_stateful_inspection': self.config.enable_stateful_inspection,
+                    'enable_intrusion_detection': self.config.enable_intrusion_detection,
+                    'enable_dos_protection': self.config.enable_dos_protection,
+                    'max_packets_per_second': self.config.max_packets_per_second,
+                    'trusted_networks': self.config.trusted_networks,
+                    'blocked_networks': self.config.blocked_networks,
+                }
+                with open(self.config_file, 'w') as f:
+                    json.dump(config_dict, f, indent=2)
+                return True
+        except Exception as e:
+            print(f"Error saving configuration: {e}")
+            return False
+    
+    def load_configuration(self) -> bool:
+        """Load configuration from file"""
+        import json
+        import os
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    config_data = json.load(f)
+                
+                with self.config_lock:
+                    for key, value in config_data.items():
+                        if hasattr(self.config, key):
+                            setattr(self.config, key, value)
+                
+                return True
+            else:
+                self.save_configuration()
+                return True
+        except Exception as e:
+            print(f"Error loading configuration: {e}")
+            return False
+        
 class ConfigurationManager:
     """Manages firewall configuration"""
     

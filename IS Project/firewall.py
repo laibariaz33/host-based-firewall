@@ -14,6 +14,228 @@ from logging_monitoring import FirewallLogger, FirewallMonitor, LogLevel, Firewa
 from configuration_policy import ConfigurationManager, PolicyManager
 from performance_analyzer import PerformanceAnalyzer
 
+from collections import defaultdict
+from datetime import datetime, timedelta
+import re
+
+from collections import defaultdict
+from datetime import datetime, timedelta
+import re
+import threading
+
+class SecurityEnhancer:
+    """Enhanced security feature enforcement with dynamic configuration"""
+    
+    def __init__(self, config_manager, log_callback):
+        self.config_manager = config_manager
+        self.log_callback = log_callback
+        self.config_lock = threading.RLock()
+        
+        # DoS Protection - Track packet rates per IP
+        self.packet_rates = defaultdict(list)  # {ip: [timestamps]}
+        self.blocked_ips = {}  # {ip: unblock_time}
+        self.dos_cleanup_interval = 60  # seconds
+        self.last_cleanup = datetime.now()
+        
+        # Intrusion Detection - Simple signature database
+        self.attack_signatures = {
+            'port_scan': {'pattern': 'multiple_ports', 'threshold': 10},
+            'sql_injection': {'pattern': r"(\bSELECT\b|\bUNION\b|\bDROP\b)", 'threshold': 1},
+            'xss_attempt': {'pattern': r"(<script>|javascript:)", 'threshold': 1},
+        }
+        self.suspicious_activity = defaultdict(set)  # {ip_port: set of ports}
+        self.last_ids_cleanup = datetime.now()
+        
+    def cleanup_dos_tracking(self):
+        """Periodically cleanup old tracking data"""
+        now = datetime.now()
+        if (now - self.last_cleanup).seconds < self.dos_cleanup_interval:
+            return
+        
+        # Remove old timestamps (older than 1 second)
+        cutoff = now - timedelta(seconds=1)
+        with self.config_lock:
+            for ip in list(self.packet_rates.keys()):
+                self.packet_rates[ip] = [t for t in self.packet_rates[ip] if t > cutoff]
+                if not self.packet_rates[ip]:
+                    del self.packet_rates[ip]
+            
+            # Remove expired IP blocks
+            for ip in list(self.blocked_ips.keys()):
+                if now > self.blocked_ips[ip]:
+                    del self.blocked_ips[ip]
+                    self.log_callback(f"🔓 Unblocked IP: {ip}")
+        
+        self.last_cleanup = now
+    
+    def cleanup_ids_tracking(self):
+        """Cleanup old IDS tracking data (every 5 minutes)"""
+        now = datetime.now()
+        if (now - self.last_ids_cleanup).seconds < 300:  # 5 minutes
+            return
+        
+        with self.config_lock:
+            # Clear old suspicious activity to prevent memory leak
+            self.suspicious_activity.clear()
+        
+        self.last_ids_cleanup = now
+    
+    def check_dos_protection(self, packet_info) -> tuple[bool, str]:
+        """
+        Check if packet should be blocked due to DoS protection
+        Returns: (should_block, reason)
+        
+        FIXED: Now properly reads current config each time
+        """
+        # READ CONFIG FRESH EACH TIME (FIX #1)
+        config = self.config_manager.get_config()
+        
+        # Feature disabled check (FIX #2: Always check current state)
+        if not config.enable_dos_protection:
+            return False, ""
+        
+        src_ip = packet_info.src_ip
+        now = datetime.now()
+        
+        with self.config_lock:
+            # Check if IP is already blocked
+            if src_ip in self.blocked_ips:
+                if now < self.blocked_ips[src_ip]:
+                    return True, f"DoS Protection (Blocked until {self.blocked_ips[src_ip].strftime('%H:%M:%S')})"
+                else:
+                    # Block expired
+                    del self.blocked_ips[src_ip]
+            
+            # Track this packet
+            self.packet_rates[src_ip].append(now)
+            
+            # Clean up old timestamps (older than 1 second)
+            cutoff = now - timedelta(seconds=1)
+            self.packet_rates[src_ip] = [t for t in self.packet_rates[src_ip] if t > cutoff]
+            
+            # Calculate packets per second
+            packets_per_second = len(self.packet_rates[src_ip])
+            
+            # FIX #3: Validate threshold before using
+            threshold = max(1, config.max_packets_per_second)  # Minimum 1 pkt/s
+            
+            # Check against threshold
+            if packets_per_second > threshold:
+                # Block this IP for 60 seconds
+                self.blocked_ips[src_ip] = now + timedelta(seconds=60)
+                self.log_callback(
+                    f"🚨 DoS DETECTED: {src_ip} ({packets_per_second} pkt/s > {threshold} limit)"
+                )
+                return True, f"DoS Protection ({packets_per_second} pkt/s exceeds limit)"
+        
+        # Periodic cleanup
+        self.cleanup_dos_tracking()
+        
+        return False, ""
+    
+    def check_intrusion_detection(self, packet_info) -> tuple[bool, str]:
+        """
+        Check if packet matches intrusion signatures
+        Returns: (should_alert, reason)
+        
+        FIXED: Now properly reads current config each time
+        """
+        # READ CONFIG FRESH EACH TIME (FIX #1)
+        config = self.config_manager.get_config()
+        
+        # Feature disabled check (FIX #2: Always check current state)
+        if not config.enable_intrusion_detection:
+            return False, ""
+        
+        src_ip = packet_info.src_ip
+        
+        with self.config_lock:
+            # Check for port scanning (accessing many different ports)
+            if hasattr(packet_info, 'dst_port') and packet_info.dst_port:
+                key = f"{src_ip}_ports"
+                
+                # Initialize set if needed
+                if key not in self.suspicious_activity:
+                    self.suspicious_activity[key] = set()
+                
+                self.suspicious_activity[key].add(packet_info.dst_port)
+                
+                # FIX #4: Use configurable threshold from attack_signatures
+                threshold = self.attack_signatures['port_scan']['threshold']
+                if len(self.suspicious_activity[key]) > threshold:
+                    self.log_callback(
+                        f"🚨 PORT SCAN DETECTED: {src_ip} scanned "
+                        f"{len(self.suspicious_activity[key])} ports"
+                    )
+                    return True, f"Intrusion Detection (Port Scan)"
+        
+        # Check payload for attack patterns (if available)
+        if hasattr(packet_info, 'payload') and packet_info.payload:
+            payload_str = str(packet_info.payload)
+            
+            # SQL Injection detection
+            sql_pattern = re.compile(
+                r"(\bSELECT\b|\bUNION\b|\bDROP\b|\bINSERT\b|\bDELETE\b)", 
+                re.IGNORECASE
+            )
+            if sql_pattern.search(payload_str):
+                self.log_callback(f"🚨 SQL INJECTION ATTEMPT: {src_ip}")
+                return True, f"Intrusion Detection (SQL Injection)"
+            
+            # XSS detection
+            xss_pattern = re.compile(
+                r"(<script>|javascript:|onerror=|onload=)", 
+                re.IGNORECASE
+            )
+            if xss_pattern.search(payload_str):
+                self.log_callback(f"🚨 XSS ATTEMPT: {src_ip}")
+                return True, f"Intrusion Detection (XSS)"
+        
+        # Periodic cleanup
+        self.cleanup_ids_tracking()
+        
+        return False, ""
+    
+    def should_apply_stateful_inspection(self) -> bool:
+        """
+        Check if stateful inspection should be applied
+        FIXED: Always read fresh config
+        """
+        config = self.config_manager.get_config()
+        return config.enable_stateful_inspection
+    
+    def reset_dos_blocks(self):
+        """Clear all DoS blocks (for testing/admin)"""
+        with self.config_lock:
+            cleared = len(self.blocked_ips)
+            self.blocked_ips.clear()
+            self.packet_rates.clear()
+        self.log_callback(f"🔓 Cleared {cleared} DoS blocks")
+        return cleared
+    
+    def reset_ids_tracking(self):
+        """Clear all IDS tracking (for testing/admin)"""
+        with self.config_lock:
+            cleared = len(self.suspicious_activity)
+            self.suspicious_activity.clear()
+        self.log_callback(f"🔄 Cleared {cleared} IDS tracking entries")
+        return cleared
+    
+    def get_statistics(self) -> dict:
+        """Get security statistics"""
+        with self.config_lock:
+            return {
+                'dos_blocked_ips': len(self.blocked_ips),
+                'dos_tracked_ips': len(self.packet_rates),
+                'ids_suspicious_ips': len(self.suspicious_activity),
+                'settings': {
+                    'stateful_inspection': self.should_apply_stateful_inspection(),
+                    'intrusion_detection': self.config_manager.get_config().enable_intrusion_detection,
+                    'dos_protection': self.config_manager.get_config().enable_dos_protection,
+                    'max_packets_per_second': self.config_manager.get_config().max_packets_per_second
+                }
+            }
+
 
 class EnhancedFirewall:
     def __init__(self, log_callback):
@@ -41,6 +263,7 @@ class EnhancedFirewall:
             'connections_tracked': 0,
             'rules_evaluated': 0
         }
+        self.security_enhancer = SecurityEnhancer(self.config_manager, self.log_callback)
     
     def start(self):
         """Start the enhanced firewall"""
@@ -188,20 +411,48 @@ class EnhancedFirewall:
             return False
 
     def process_packet(self, packet_info: PacketInfo) -> tuple[bool, dict]:
-        """Process a packet through rules, stateful inspection, and policy"""
+        '''Process a packet through rules, stateful inspection, and policy'''
         try:
             self.stats['packets_processed'] += 1
 
-            # Stateful inspection
-            stateful_allow, connection_state, connection = self.stateful_inspector.inspect_packet(packet_info)
-            if connection:
-                self.stats['connections_tracked'] += 1
+            # ====== NEW: DoS Protection Check ======
+            dos_block, dos_reason = self.security_enhancer.check_dos_protection(packet_info)
+            if dos_block:
+                self.stats['packets_blocked'] += 1
+                self.logger.log_packet_blocked(
+                    packet_info.src_ip, 
+                    packet_info.dst_ip, 
+                    packet_info.protocol, 
+                    reason=dos_reason
+                )
+                return False, {'rule_name': dos_reason, 'decision_source': 'dos_protection'}
 
-            # Rule engine evaluation
+            # ====== NEW: Intrusion Detection Check ======
+            ids_alert, ids_reason = self.security_enhancer.check_intrusion_detection(packet_info)
+            if ids_alert:
+                # Log alert but don't necessarily block (configurable)
+                self.logger.log_event(FirewallEvent(
+                    timestamp=datetime.now(),
+                    event_type="INTRUSION_DETECTED",
+                    level=LogLevel.WARNING,
+                    message=f"{ids_reason} from {packet_info.src_ip}"
+                ))
+
+            # ====== MODIFIED: Stateful inspection (now controlled by setting) ======
+            stateful_allow = True
+            connection_state = None
+            connection = None
+            
+            if self.security_enhancer.should_apply_stateful_inspection():
+                stateful_allow, connection_state, connection = self.stateful_inspector.inspect_packet(packet_info)
+                if connection:
+                    self.stats['connections_tracked'] += 1
+
+            # Rule engine evaluation (unchanged)
             rule_allow, matching_rule = self.rule_engine.evaluate_packet(packet_info)
             self.stats['rules_evaluated'] += 1
 
-            # Policy evaluation
+            # Policy evaluation (unchanged)
             policy_actions = self.policy_manager.evaluate_policies(packet_info)
             policy_forced_allow = any(a.name == 'ALLOW' for a in policy_actions)
             policy_forced_deny = any(a.name == 'DENY' or a.name == 'QUARANTINE' for a in policy_actions)
@@ -213,7 +464,7 @@ class EnhancedFirewall:
             elif policy_forced_deny or policy_forced_allow:
                 final_decision = not policy_forced_deny
                 decision_source = 'policy'
-            elif connection_state is not None:
+            elif connection_state is not None and self.security_enhancer.should_apply_stateful_inspection():
                 final_decision = stateful_allow
                 decision_source = 'stateful'
             else:
@@ -654,3 +905,4 @@ if __name__ == "__main__":
             import traceback
             traceback.print_exc()
             break
+
