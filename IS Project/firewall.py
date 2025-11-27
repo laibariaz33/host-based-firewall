@@ -450,6 +450,9 @@ class EnhancedFirewallGUI:
         self.auto_refresh_running = False
         self.refresh_interval = 2  # Default 2 seconds like real firewalls
         self.last_refresh_time = None
+        self.monitor_refresh_job = None
+        self.logs_refresh_job = None
+        self.logs_auto_refresh_paused = False
 
         # Create notebook for tabs
         self.notebook = ttk.Notebook(root)
@@ -467,6 +470,7 @@ class EnhancedFirewallGUI:
         self.performance_analyzer = PerformanceAnalyzer(self.notebook)
         perf_frame = self.performance_analyzer.get_frame()
         self.notebook.add(perf_frame, text="Performance Analyzer")
+        self._start_tab_auto_refresh()
         
 
     def _insert_text(self, widget, text):
@@ -585,6 +589,8 @@ class EnhancedFirewallGUI:
         ttk.Button(log_controls, text="Refresh Logs", command=self.refresh_logs).pack(side=tk.LEFT, padx=5)
         ttk.Button(log_controls, text="Clear Logs", command=self.clear_logs).pack(side=tk.LEFT, padx=5)
         ttk.Button(log_controls, text="Export Logs", command=self.export_logs).pack(side=tk.LEFT, padx=5)
+        self.logs_pause_btn = ttk.Button(log_controls, text="Pause Auto Refresh", command=self.toggle_logs_auto_refresh)
+        self.logs_pause_btn.pack(side=tk.LEFT, padx=5)
 
     def _create_configuration_tab(self):
         """Create configuration tab"""
@@ -688,8 +694,66 @@ class EnhancedFirewallGUI:
                 return
             self.refresh_interval = new_interval
             self.log_message(f"Refresh interval changed to {self.refresh_interval}s")
+            self._restart_tab_auto_refresh()
         except ValueError:
             messagebox.showerror("Error", "Invalid interval value")
+
+    def _start_tab_auto_refresh(self):
+        """Start Tk-based refresh loops for monitoring and logs tabs."""
+        self._schedule_monitoring_refresh()
+        self._schedule_logs_refresh()
+
+    def _restart_tab_auto_refresh(self):
+        """Restart the Tk loops when interval or state changes."""
+        if self.monitor_refresh_job:
+            self.root.after_cancel(self.monitor_refresh_job)
+            self.monitor_refresh_job = None
+        if self.logs_refresh_job:
+            self.root.after_cancel(self.logs_refresh_job)
+            self.logs_refresh_job = None
+        self._start_tab_auto_refresh()
+
+    def _schedule_monitoring_refresh(self):
+        """Refresh monitoring tab automatically when it is visible."""
+        try:
+            current_tab = self.notebook.tab(self.notebook.select(), "text")
+        except tk.TclError:
+            current_tab = ""
+
+        if current_tab == "Monitoring":
+            try:
+                self.refresh_monitoring()
+            except Exception as exc:
+                self.log_message(f"Monitoring auto-refresh error: {exc}")
+
+        interval_ms = max(1000, int(self.refresh_interval * 1000))
+        self.monitor_refresh_job = self.root.after(interval_ms, self._schedule_monitoring_refresh)
+
+    def _schedule_logs_refresh(self):
+        """Refresh logs tab automatically when it is visible."""
+        try:
+            current_tab = self.notebook.tab(self.notebook.select(), "text")
+        except tk.TclError:
+            current_tab = ""
+
+        if current_tab == "Logs" and not self.logs_auto_refresh_paused:
+            try:
+                self.refresh_logs()
+            except Exception as exc:
+                self.log_message(f"Logs auto-refresh error: {exc}")
+
+        interval_ms = max(1000, int(self.refresh_interval * 1000))
+        self.logs_refresh_job = self.root.after(interval_ms, self._schedule_logs_refresh)
+
+    def toggle_logs_auto_refresh(self):
+        """Allow the user to pause/resume logs auto refresh to read entries."""
+        self.logs_auto_refresh_paused = not self.logs_auto_refresh_paused
+        if self.logs_auto_refresh_paused:
+            self.logs_pause_btn.config(text="Resume Auto Refresh")
+            self.log_message("Logs auto refresh paused")
+        else:
+            self.logs_pause_btn.config(text="Pause Auto Refresh")
+            self.log_message("Logs auto refresh resumed")
 
     def _auto_refresh_loop(self):
         """Background thread that automatically refreshes data"""
