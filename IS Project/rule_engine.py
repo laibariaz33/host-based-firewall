@@ -55,147 +55,16 @@ class FirewallRule:
 
 class RuleEngine:
     """Advanced rule engine for packet filtering with persistence"""
-    
+
     def __init__(self, log_callback=None, rules_file="firewall_rules.json"):
         self.log_callback = log_callback
         self.rules: List[FirewallRule] = []
         self.rule_counter = 0
-        self.default_action = RuleAction.DENY  # Safer default
+        self.default_action = RuleAction.DENY
         self.rules_file = rules_file
         
-        # Try to load rules from file first
-        if not self.load_rules_from_file():
-            # If no saved rules, load defaults
-            self._load_default_rules()
-            # Save the defaults for next time
-            self.save_rules_to_file()
-    
-    def _load_default_rules(self):
-        """Load default firewall rules"""
-        default_rules = [
-            FirewallRule(
-                id="default_deny_private",
-                name="Deny Private Network Access",
-                action=RuleAction.DENY,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.ANY,
-                dst_ip="10.0.0.0/8",
-                description="Block access to private networks",
-                priority=10
-            ),
-            FirewallRule(
-                id="block_rdp",
-                name="Block RDP Inbound",
-                action=RuleAction.DENY,
-                direction=RuleDirection.INBOUND,
-                protocol=Protocol.TCP,
-                dst_port=3389,
-                description="Block remote desktop attacks",
-                priority=15
-            ),
-            FirewallRule(
-                id="allow_lan",
-                name="Allow LAN traffic",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.BOTH,
-                protocol=Protocol.ANY,
-                src_ip="192.168.0.0/16",
-                dst_ip="192.168.0.0/16",
-                description="Allow all traffic inside local network",
-                priority=20
-            ),
-            FirewallRule(
-                id="default_allow_dns",
-                name="Allow DNS Queries",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.UDP,
-                dst_port=53,
-                description="Allow DNS queries",
-                priority=30
-            ),
-            FirewallRule(
-                id="default_allow_http",
-                name="Allow HTTP",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.TCP,
-                dst_port=80,
-                description="Allow HTTP traffic",
-                priority=40
-            ),
-            FirewallRule(
-                id="default_allow_https",
-                name="Allow HTTPS",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.TCP,
-                dst_port=443,
-                description="Allow HTTPS traffic",
-                priority=45
-            ),
-            FirewallRule(
-                id="default_allow_http_in",
-                name="Allow HTTP Inbound",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.INBOUND,
-                protocol=Protocol.TCP,
-                src_port=80,
-                description="Allow incoming HTTP responses",
-                priority=50
-            ),
-            FirewallRule(
-                id="default_allow_https_in",
-                name="Allow HTTPS Inbound",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.INBOUND,
-                protocol=Protocol.TCP,
-                src_port=443,
-                description="Allow incoming HTTPS responses",
-                priority=55
-            ),
-            FirewallRule(
-                id="allow_vpn_udp",
-                name="Allow VPN UDP",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.BOTH,
-                protocol=Protocol.UDP,
-                dst_port=1194,
-                description="Allow VPN UDP traffic",
-                priority=60
-            ),
-            FirewallRule(
-                id="allow_vpn_tcp",
-                name="Allow VPN TCP",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.BOTH,
-                protocol=Protocol.TCP,
-                dst_port=443,
-                description="Allow VPN TCP traffic",
-                priority=61
-            ),
-            FirewallRule(
-                id="allow_icmp",
-                name="Allow ICMP",
-                action=RuleAction.ALLOW,
-                direction=RuleDirection.BOTH,
-                protocol=Protocol.ICMP,
-                description="Allow ping requests/replies",
-                priority=70
-            ),
-            FirewallRule(
-                id="log_unknown_tcp",
-                name="Log Unknown TCP Traffic",
-                action=RuleAction.LOG,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.TCP,
-                description="Log outbound TCP traffic not matching allow rules",
-                priority=100
-            )
-        ]
-        
-        for rule in default_rules:
-            self.add_rule(rule)
+        # Only load from file, don't create defaults
+        self.load_rules_from_file()
     
     def save_rules_to_file(self) -> bool:
         """Save all rules to a JSON file for persistence"""

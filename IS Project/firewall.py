@@ -44,37 +44,6 @@ class EnhancedFirewall:
             'connections_tracked': 0,
             'rules_evaluated': 0
         }
-        self._install_demo_rules()
-    def _install_demo_rules(self):
-        """Install quick demo rules so user can immediately verify blocking."""
-        existing = [r.name for r in self.rule_engine.get_all_rules()]
-
-        # Demo block IP (8.8.8.8)
-        if "Block 8.8.8.8" not in existing:
-            self.rule_engine.add_rule(FirewallRule(
-                id="demo_block_8888",
-                name="Block 8.8.8.8",
-                action=RuleAction.DENY,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.ANY,
-                dst_ip="8.8.8.8",
-                priority=1,
-                description="Demo: Block outbound traffic to Google DNS"
-            ))
-
-        # Optional: Block HTTP (port 80) outbound
-        if "Block HTTP Port 80" not in existing:
-            self.rule_engine.add_rule(FirewallRule(
-                id="demo_block_http80",
-                name="Block HTTP Port 80",
-                action=RuleAction.DENY,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.TCP,
-                dst_port=80,
-                priority=2,
-                description="Demo: Block outbound HTTP traffic"
-            ))
-
     def start(self):
         """Start the enhanced firewall"""
         self.running = True
@@ -100,22 +69,12 @@ class EnhancedFirewall:
         except Exception as e:
             self.log_callback(f"Config default_action error: {e}")
 
-        # Optionally install demo rules if enabled in config
         try:
-            cfg = self.config_manager.get_config()
-            if getattr(cfg, 'enable_demo_rules', False):
-                self._install_demo_rules()
-            # Install baseline allow rules when default policy is DENY to keep system usable
-            if str(cfg.default_action).upper() == "DENY" and getattr(cfg, 'enable_baseline_rules', True):
-                self._install_baseline_rules()
-            # Install security hardening inbound deny rules if enabled
-            if getattr(cfg, 'enable_hardening_rules', True):
-                self._install_hardening_rules()
-            # Apply configuration-driven network/port controls
-            self._apply_config_rules(cfg)
+            # Only load rules from JSON file - no auto-generated rules
+            self.log_callback(f"Using rules from JSON file only.")
         except Exception as e:
             self.log_callback(f"Rule setup error: {e}")
-        
+                
         # Start packet capture in a separate thread with packet processor
         self.capture_thread = threading.Thread(
             target=self._start_packet_capture_with_processing, 
@@ -254,19 +213,6 @@ class EnhancedFirewall:
                 priority=prio,
                 description=desc
             ))
-        
-        if "Block HTTP Port 80" not in existing:
-            self.rule_engine.add_rule(FirewallRule(
-                id="demo_block_http80",
-                name="Block HTTP Port 80",
-                action=RuleAction.DENY,
-                direction=RuleDirection.OUTBOUND,
-                protocol=Protocol.TCP,
-                dst_port=80,
-                priority=200,
-                description="Demo: Block outbound HTTP so you can verify blocking"
-            ))
-
     def _apply_config_rules(self, cfg):
         """Translate configuration settings into enforcement rules."""
         try:
