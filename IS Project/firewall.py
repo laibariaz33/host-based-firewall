@@ -271,6 +271,7 @@ class EnhancedFirewallGUI:
         self.packet_refresh_thread = None
         self.auto_refresh_thread = None
         self.auto_refresh_running = False
+        self.packet_refresh_paused = False
         self.refresh_interval = 2
         
         # Search variables
@@ -285,7 +286,7 @@ class EnhancedFirewallGUI:
         self._create_rules_tab()
         self._create_packets_tab()  # NEW: Dedicated packets tab
         self._create_monitoring_tab()
-        self._create_logs_tab()
+        
         self._create_configuration_tab()
 
         self.performance_analyzer = PerformanceAnalyzer(self.notebook)
@@ -346,7 +347,7 @@ class EnhancedFirewallGUI:
     def _create_packets_tab(self):
         """Create dedicated packets tab with search"""
         packets_frame = ttk.Frame(self.notebook)
-        self.notebook.add(packets_frame, text="📦 Packets")
+        self.notebook.add(packets_frame, text="📋 Logs")
 
         # Search bar
         search_frame = ttk.Frame(packets_frame)
@@ -381,9 +382,21 @@ class EnhancedFirewallGUI:
         auto_scroll_frame.pack(fill=tk.X, padx=10, pady=5)
         self.auto_scroll_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(auto_scroll_frame, text="Auto-scroll", variable=self.auto_scroll_var).pack(side=tk.LEFT)
+        self.pause_btn = ttk.Button(auto_scroll_frame, text="⏸ Pause", command=self.toggle_packet_refresh)
+        self.pause_btn.pack(side=tk.LEFT, padx=10)
+
         
         # Start packet refresh thread
         self._start_packet_refresh()
+    def toggle_packet_refresh(self):
+        """Toggle pause/resume of packet display"""
+        self.packet_refresh_paused = not self.packet_refresh_paused
+        if self.packet_refresh_paused:
+            self.pause_btn.config(text="▶ Resume")
+            self.log_message("📋 Packet display paused")
+        else:
+            self.pause_btn.config(text="⏸ Pause")
+            self.log_message("📋 Packet display resumed")
 
     def _start_packet_refresh(self):
         """Start thread to refresh packet display"""
@@ -403,6 +416,10 @@ class EnhancedFirewallGUI:
     def refresh_packets(self):
         """Refresh packet display from buffer"""
         try:
+            # Check if paused - ADD THESE 2 LINES HERE
+            if self.packet_refresh_paused:
+                return
+            
             # Get recent packets from buffer
             packets = list(self.firewall.packet_log_buffer)
             
@@ -508,20 +525,7 @@ class EnhancedFirewallGUI:
 
         ttk.Button(monitor_frame, text="🔄 Refresh Monitoring", command=self.refresh_monitoring).pack(pady=5)
 
-    def _create_logs_tab(self):
-        """Create logs tab"""
-        logs_frame = ttk.Frame(self.notebook)
-        self.notebook.add(logs_frame, text="📝 Logs")
-
-        self.logs_text = scrolledtext.ScrolledText(logs_frame, height=25, width=100, state=tk.DISABLED, font=("Consolas", 9))
-        self.logs_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        log_controls = ttk.Frame(logs_frame)
-        log_controls.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Button(log_controls, text="🔄 Refresh", command=self.refresh_logs).pack(side=tk.LEFT, padx=5)
-        ttk.Button(log_controls, text="🗑️ Clear", command=self.clear_logs).pack(side=tk.LEFT, padx=5)
-        ttk.Button(log_controls, text="💾 Export", command=self.export_logs).pack(side=tk.LEFT, padx=5)
+   
 
     def _create_configuration_tab(self):
         """Create configuration tab"""
@@ -628,41 +632,6 @@ class EnhancedFirewallGUI:
         except Exception as e:
             self.log_message(f"Error refreshing monitoring: {e}")
 
-    def refresh_logs(self):
-        """Refresh logs display"""
-        try:
-            events = self.firewall.logger.get_recent_events(100)
-            
-            self._clear_text(self.logs_text)
-            self._insert_text(self.logs_text, "═══ RECENT LOG EVENTS ═══\n\n")
-            
-            if events:
-                for event in events:
-                    timestamp = event.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    self._insert_text(self.logs_text, f"[{timestamp}] {event.level.value:8} | {event.message}\n")
-            else:
-                self._insert_text(self.logs_text, "No log events found.\n")
-                
-        except Exception as e:
-            self.log_message(f"Error refreshing logs: {e}")
-
-    def clear_logs(self):
-        """Clear logs display"""
-        self._clear_text(self.logs_text)
-
-    def export_logs(self):
-        """Export logs to file"""
-        try:
-            filename = filedialog.asksaveasfilename(
-                defaultextension=".txt",
-                filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-            )
-            if filename:
-                with open(filename, 'w') as f:
-                    f.write(self.logs_text.get(1.0, tk.END))
-                messagebox.showinfo("Success", f"Logs exported to {filename}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Export error: {e}")
 
 
 if __name__ == "__main__":
