@@ -62,6 +62,7 @@ class StatefulInspector:
         self.cleanup_interval = 60  # 1 minute
         self.running = False
         self.cleanup_thread = None
+        self.last_cleanup_log = datetime.now()
         
         # Start cleanup thread
         self._start_cleanup_thread()
@@ -83,15 +84,24 @@ class StatefulInspector:
                     if (current_time - connection.last_seen).seconds > self.connection_timeout:
                         expired_connections.append(conn_id)
                 
+                # Remove expired connections
+                expired_count = 0
                 for conn_id in expired_connections:
                     del self.connections[conn_id]
-                    if self.log_callback:
-                        self.log_callback(f"Connection expired: {conn_id}")
+                    expired_count += 1
+                
+                # Only log summary every 5 minutes or if significant cleanup
+                if expired_count > 0:
+                    time_since_log = (current_time - self.last_cleanup_log).seconds
+                    if expired_count >= 10 or time_since_log >= 300:  # 5 minutes
+                        if self.log_callback:
+                            self.log_callback(f"🧹 Cleaned {expired_count} expired connection(s)")
+                        self.last_cleanup_log = current_time
                 
                 time.sleep(self.cleanup_interval)
             except Exception as e:
                 if self.log_callback:
-                    self.log_callback(f"Cleanup error: {e}")
+                    self.log_callback(f"❌ Cleanup error: {e}")
                 time.sleep(self.cleanup_interval)
     
     def _get_connection_id(self, src_ip: str, dst_ip: str, src_port: int, dst_port: int, protocol: str) -> str:
@@ -146,28 +156,21 @@ class StatefulInspector:
             self.connections[conn_id] = connection
             connection_state = ConnectionState.NEW
         
-        # Determine state based on protocol and flags
+        # Determine state based on protocol
         if packet_info.protocol == 'TCP':
             connection_state = self._determine_tcp_state(connection, packet_info)
         elif packet_info.protocol == 'UDP':
             connection_state = self._determine_udp_state(connection, packet_info)
         
         # Update connection state
-        old_state = connection.state
         connection.state = connection_state
-        
-        # Log connection state changes
-        if self.log_callback and connection_state != old_state:
-            self.log_callback(f"Connection state change: {conn_id} -> {connection_state.value}")
         
         # For stateful inspection, allow established connections and new outbound connections
         should_allow = True
         if packet_info.protocol == 'TCP':
-            # Allow new outbound connections and established connections
             should_allow = (connection_state in [ConnectionState.NEW, ConnectionState.ESTABLISHED] and 
                           packet_info.direction == "OUT") or connection_state == ConnectionState.ESTABLISHED
         elif packet_info.protocol == 'UDP':
-            # Allow outbound UDP and established UDP flows
             should_allow = packet_info.direction == "OUT" or connection_state == ConnectionState.ESTABLISHED
         
         return should_allow, connection_state, connection
@@ -241,8 +244,6 @@ class StatefulInspector:
         """Manually close a connection"""
         if conn_id in self.connections:
             del self.connections[conn_id]
-            if self.log_callback:
-                self.log_callback(f"Connection closed: {conn_id}")
             return True
         return False
     
@@ -265,20 +266,13 @@ class StatefulInspector:
         return {
             'total_connections': total_connections,
             'state_counts': state_counts,
-            'average_duration_seconds': avg_duration,
+            'average_duration_seconds': round(avg_duration, 2),
             'oldest_connection': min([conn.first_seen for conn in self.connections.values()]) if self.connections else None,
             'newest_connection': max([conn.first_seen for conn in self.connections.values()]) if self.connections else None
         }
-    
-    def get_all_connections(self) -> List[Connection]:
-        """Get all active connections"""
-        return list(self.connections.values())
     
     def stop(self):
         """Stop the stateful inspector"""
         self.running = False
         if self.cleanup_thread and self.cleanup_thread.is_alive():
             self.cleanup_thread.join(timeout=5)
-        
-        if self.log_callback:
-            self.log_callback("Stateful inspector stopped")
