@@ -513,10 +513,17 @@ class PolicyManager:
 class ConfigurationGUI:
     """GUI for configuration management"""
     
-    def __init__(self, parent, config_manager: ConfigurationManager, policy_manager: PolicyManager):
+    def __init__(
+        self, 
+        parent, 
+        config_manager: ConfigurationManager, 
+        policy_manager: PolicyManager,
+        on_save_callback=None
+    ):
         self.parent = parent
         self.config_manager = config_manager
         self.policy_manager = policy_manager
+        self.on_save_callback = on_save_callback
         
         # Create notebook for tabs
         self.notebook = ttk.Notebook(parent)
@@ -998,6 +1005,11 @@ class ConfigurationGUI:
         try:
             if success:
                 messagebox.showinfo("Configuration", "Configuration saved successfully.\n\nRestart the firewall to apply default action changes.")
+                if self.on_save_callback:
+                    try:
+                        self.on_save_callback()
+                    except Exception as callback_error:
+                        messagebox.showwarning("Configuration", f"Config applied but live reload failed:\n{callback_error}")
             else:
                 messagebox.showerror("Configuration", "Failed to save configuration.\nCheck console for error details.")
         finally:
