@@ -43,8 +43,22 @@ class FirewallEvent:
 
 class FirewallLogger:
     """Enhanced logging system for firewall events"""
+
+    LEVEL_PRIORITY = {
+        LogLevel.DEBUG: 10,
+        LogLevel.INFO: 20,
+        LogLevel.WARNING: 30,
+        LogLevel.ERROR: 40,
+        LogLevel.CRITICAL: 50,
+    }
     
-    def __init__(self, log_dir: str = "logs", max_file_size: int = 10*1024*1024, max_files: int = 5):
+    def __init__(
+        self, 
+        log_dir: str = "logs", 
+        max_file_size: int = 10*1024*1024, 
+        max_files: int = 5,
+        min_level: str = LogLevel.INFO
+    ):
         self.log_dir = log_dir
         self.max_file_size = max_file_size
         self.max_files = max_files
@@ -57,7 +71,7 @@ class FirewallLogger:
             'blocked_packets': 0,
             'allowed_packets': 0
         }
-        
+        self.min_level = self._normalize_level(min_level)
         # Create log directory
         os.makedirs(log_dir, exist_ok=True)
         
@@ -228,6 +242,8 @@ class FirewallLogger:
     
     def _write_event(self, event: FirewallEvent):
         try:
+            if not self._should_log(event.level):
+                return
             logger_name = 'firewall'
             if event.event_type == "SECURITY_ALERT":
                 logger_name = 'security'
@@ -252,6 +268,24 @@ class FirewallLogger:
         except Exception as e:
             print(f"Error writing log: {e}")
     
+    def _normalize_level(self, level: str) -> str:
+        level = (level or LogLevel.INFO).upper()
+        return level if level in self.LEVEL_PRIORITY else LogLevel.INFO
+
+    def _should_log(self, level: str) -> bool:
+        event_priority = self.LEVEL_PRIORITY.get(level, self.LEVEL_PRIORITY[LogLevel.INFO])
+        min_priority = self.LEVEL_PRIORITY.get(self.min_level, self.LEVEL_PRIORITY[LogLevel.INFO])
+        return event_priority >= min_priority
+
+    def set_log_level(self, level: str):
+        """Update minimum log level at runtime"""
+        normalized = self._normalize_level(level)
+        self.min_level = normalized
+
+    def get_log_level(self) -> str:
+        """Return current minimum log level"""
+        return self.min_level
+
     def _format_log_message(self, event: FirewallEvent) -> str:
         parts = [event.message]
         if event.source_ip: parts.append(f"src={event.source_ip}")

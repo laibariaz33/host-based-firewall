@@ -19,15 +19,23 @@ class EnhancedFirewall:
     def __init__(self, log_callback):
         self.running = False
         self.log_callback = log_callback
+        self.log_level_priority = {
+            LogLevel.DEBUG: 10,
+            LogLevel.INFO: 20,
+            LogLevel.WARNING: 30,
+            LogLevel.ERROR: 40,
+            LogLevel.CRITICAL: 50,
+        }
         
         # Initialize all modules
         self.packet_capture = PacketCapture(self.log_callback)
         self.rule_engine = RuleEngine(self.log_callback)
         self.stateful_inspector = StatefulInspector(self.log_callback)
         self.rule_manager = RuleManager(self.rule_engine)
-        self.logger = FirewallLogger()
-        self.monitor = FirewallMonitor(self.logger)
         self.config_manager = ConfigurationManager()
+        cfg = self.config_manager.get_config()
+        self.logger = FirewallLogger(min_level=cfg.log_level)
+        self.monitor = FirewallMonitor(self.logger)
         self.policy_manager = PolicyManager()
         
         # Packet log buffer for real-time display
@@ -126,11 +134,11 @@ class EnhancedFirewall:
                             # Only log blocked or explicitly allowed by rule (not default allow)
                             if match_info.get('decision_source') == 'rule' and match_info.get('rule_name'):
                                 log_entry = f"[{timestamp}] ✅ ALLOW | {proto:4} | {src:21} → {dst:21} | Rule: {rule_name}"
-                                self.packet_log_buffer.append(log_entry)
+                                self._append_packet_log(log_entry, LogLevel.INFO)
                         else:
                             # Packet is dropped (not sent)
                             log_entry = f"[{timestamp}] 🚫 BLOCK | {proto:4} | {src:21} → {dst:21} | Rule: {rule_name}"
-                            self.packet_log_buffer.append(log_entry)
+                            self._append_packet_log(log_entry, LogLevel.WARNING)
                             self.log_callback(f"BLOCKED: {src} → {dst} by '{rule_name}'")
                     
                     except Exception as e:
@@ -165,6 +173,56 @@ class EnhancedFirewall:
             message="Firewall stopped"
         ))
 
+    def _append_packet_log(self, text: str, level: str):
+        """Store packet log entries with level metadata for filtering"""
+        entry = {
+            'text': text,
+            'level': level if level in self.log_level_priority else LogLevel.INFO
+        }
+        self.packet_log_buffer.append(entry)
+
+    def _is_debug_enabled(self) -> bool:
+        """Check if debug-level diagnostics should be emitted."""
+        current_level = self.logger.get_log_level()
+        min_priority = self.log_level_priority.get(current_level, self.log_level_priority[LogLevel.INFO])
+        return min_priority <= self.log_level_priority[LogLevel.DEBUG]
+
+    def _emit_debug_packet_details(self, packet_info, match_info, policy_actions, decision, decision_source):
+        """Emit detailed debug context for packet processing."""
+        if not self._is_debug_enabled():
+            return
+        
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        src = f"{packet_info.src_ip}:{packet_info.src_port}" if packet_info.src_port else packet_info.src_ip
+        dst = f"{packet_info.dst_ip}:{packet_info.dst_port}" if packet_info.dst_port else packet_info.dst_ip
+        policy_str = ','.join(policy_actions) if policy_actions else 'none'
+        parts = [
+            f"decision={'ALLOW' if decision else 'BLOCK'}",
+            f"source={decision_source}",
+            f"rule={match_info.get('rule_name') or 'default'}",
+            f"policy={policy_str}",
+            f"state={match_info.get('connection_state') or 'none'}"
+        ]
+        debug_text = f"[{timestamp}] 🛠 DEBUG | {packet_info.protocol:4} | {src} → {dst} | " + " | ".join(parts)
+        self._append_packet_log(debug_text, LogLevel.DEBUG)
+        
+        self.logger.log_event(FirewallEvent(
+            timestamp=datetime.now(),
+            event_type="PACKET_DEBUG",
+            level=LogLevel.DEBUG,
+            message="; ".join(parts),
+            source_ip=packet_info.src_ip,
+            dest_ip=packet_info.dst_ip,
+            protocol=packet_info.protocol,
+            action="ALLOW" if decision else "BLOCKED",
+            rule_id=match_info.get('rule_id'),
+            additional_data={
+                'decision_source': decision_source,
+                'policy_actions': policy_actions,
+                'connection_state': match_info.get('connection_state')
+            }
+        ))
+
     def reload_configuration(self) -> bool:
         """Live-reload configuration and policies"""
         try:
@@ -178,6 +236,7 @@ class EnhancedFirewall:
                     self.rule_engine.set_default_action(RuleAction.DENY)
                 else:
                     self.rule_engine.set_default_action(RuleAction.ALLOW)
+                self.logger.set_log_level(cfg.log_level)
             except Exception as e:
                 self.log_callback(f"⚠️ Config reload error: {e}")
 
@@ -240,6 +299,14 @@ class EnhancedFirewall:
                 reason = match_info.get('rule_name') or "Default Policy"
                 self.logger.log_packet_blocked(packet_info.src_ip, packet_info.dst_ip, packet_info.protocol, reason=reason)
 
+            self._emit_debug_packet_details(
+                packet_info,
+                match_info,
+                match_info.get('policy_actions', []),
+                final_decision,
+                decision_source
+            )
+
             return final_decision, match_info
 
         except Exception as e:
@@ -276,6 +343,13 @@ class EnhancedFirewallGUI:
         
         # Search variables
         self.search_var = tk.StringVar()
+        self.log_level_priority = {
+            LogLevel.DEBUG: 10,
+            LogLevel.INFO: 20,
+            LogLevel.WARNING: 30,
+            LogLevel.ERROR: 40,
+            LogLevel.CRITICAL: 50,
+        }
 
         # Create notebook for tabs
         self.notebook = ttk.Notebook(root)
@@ -421,7 +495,9 @@ class EnhancedFirewallGUI:
                 return
             
             # Get recent packets from buffer
-            packets = list(self.firewall.packet_log_buffer)
+            packets = [self._normalize_packet_entry(p) for p in list(self.firewall.packet_log_buffer)]
+            current_level = self.firewall.logger.get_log_level()
+            packets = [p for p in packets if self._should_display_packet(p['level'], current_level)]
             
             if not packets:
                 return
@@ -433,7 +509,7 @@ class EnhancedFirewallGUI:
             self._insert_text(self.packets_text, "═" * 120 + "\n")
             
             for packet in packets[-500:]:  # Show last 500
-                self._insert_text(self.packets_text, packet + "\n")
+                self._insert_text(self.packets_text, packet['text'] + "\n")
             
             # Auto-scroll if enabled
             if self.auto_scroll_var.get():
@@ -449,13 +525,18 @@ class EnhancedFirewallGUI:
             self.refresh_packets()
             return
         
-        packets = list(self.firewall.packet_log_buffer)
-        filtered = [p for p in packets if search_term in p.lower()]
+        packets = [self._normalize_packet_entry(p) for p in list(self.firewall.packet_log_buffer)]
+        current_level = self.firewall.logger.get_log_level()
+        filtered = [
+            p for p in packets 
+            if self._should_display_packet(p['level'], current_level) 
+            and search_term in p['text'].lower()
+        ]
         
         self._clear_text(self.packets_text)
         self._insert_text(self.packets_text, f"🔍 Search results for: '{search_term}' ({len(filtered)} matches)\n\n")
         for packet in filtered[-500:]:
-            self._insert_text(self.packets_text, packet + "\n")
+            self._insert_text(self.packets_text, packet['text'] + "\n")
 
     def _clear_search(self):
         """Clear search"""
@@ -464,25 +545,27 @@ class EnhancedFirewallGUI:
 
     def _filter_packets(self, filter_type):
         """Filter packets by type"""
-        packets = list(self.firewall.packet_log_buffer)
+        packets = [self._normalize_packet_entry(p) for p in list(self.firewall.packet_log_buffer)]
+        current_level = self.firewall.logger.get_log_level()
+        packets = [p for p in packets if self._should_display_packet(p['level'], current_level)]
         
         if filter_type == "all":
             filtered = packets
         elif filter_type == "blocked":
-            filtered = [p for p in packets if "🚫 BLOCK" in p]
+            filtered = [p for p in packets if "🚫 BLOCK" in p['text']]
         elif filter_type == "allowed":
-            filtered = [p for p in packets if "✅ ALLOW" in p]
+            filtered = [p for p in packets if "✅ ALLOW" in p['text']]
         elif filter_type == "tcp":
-            filtered = [p for p in packets if "TCP" in p]
+            filtered = [p for p in packets if "TCP" in p['text']]
         elif filter_type == "udp":
-            filtered = [p for p in packets if "UDP" in p]
+            filtered = [p for p in packets if "UDP" in p['text']]
         else:
             filtered = packets
         
         self._clear_text(self.packets_text)
         self._insert_text(self.packets_text, f"📊 Filter: {filter_type.upper()} ({len(filtered)} packets)\n\n")
         for packet in filtered[-500:]:
-            self._insert_text(self.packets_text, packet + "\n")
+            self._insert_text(self.packets_text, packet['text'] + "\n")
 
     def export_packets(self):
         """Export packets to file"""
@@ -492,10 +575,12 @@ class EnhancedFirewallGUI:
                 filetypes=[("Text files", "*.txt"), ("CSV files", "*.csv"), ("All files", "*.*")]
             )
             if filename:
-                packets = list(self.firewall.packet_log_buffer)
+                packets = [self._normalize_packet_entry(p) for p in list(self.firewall.packet_log_buffer)]
+                current_level = self.firewall.logger.get_log_level()
                 with open(filename, 'w') as f:
                     for packet in packets:
-                        f.write(packet + "\n")
+                        if self._should_display_packet(packet['level'], current_level):
+                            f.write(packet['text'] + "\n")
                 messagebox.showinfo("Success", f"Exported {len(packets)} packets to {filename}")
         except Exception as e:
             messagebox.showerror("Error", f"Export error: {e}")
@@ -533,9 +618,12 @@ class EnhancedFirewallGUI:
         self.notebook.add(config_frame, text="⚙️ Configuration")
 
         from configuration_policy import ConfigurationGUI
-        self.config_gui = ConfigurationGUI(config_frame, 
-                                         self.firewall.config_manager, 
-                                         self.firewall.policy_manager)
+        self.config_gui = ConfigurationGUI(
+            config_frame,
+            self.firewall.config_manager,
+            self.firewall.policy_manager,
+            on_save_callback=self._on_configuration_saved
+        )
 
         reload_frame = ttk.Frame(config_frame)
         reload_frame.pack(fill=tk.X, padx=10, pady=6)
@@ -548,6 +636,26 @@ class EnhancedFirewallGUI:
             messagebox.showinfo("Reload", "Configuration reloaded successfully.")
         else:
             messagebox.showwarning("Reload", "Reload completed with issues.")
+
+    def _on_configuration_saved(self):
+        """Auto-apply configuration after saving"""
+        ok = self.firewall.reload_configuration()
+        if ok:
+            self.log_message("🔁 Configuration saved and applied live.")
+        else:
+            self.log_message("⚠️ Configuration saved, but live reload had issues.")
+
+    def _normalize_packet_entry(self, entry):
+        """Ensure packet entries have text+level structure"""
+        if isinstance(entry, dict):
+            return entry
+        return {'text': entry, 'level': LogLevel.INFO}
+
+    def _should_display_packet(self, packet_level: str, min_level: str) -> bool:
+        """Apply same level filtering used by logger to UI buffer"""
+        packet_priority = self.log_level_priority.get(packet_level, self.log_level_priority[LogLevel.INFO])
+        min_priority = self.log_level_priority.get(min_level, self.log_level_priority[LogLevel.INFO])
+        return packet_priority >= min_priority
 
     def log_message(self, message):
         """Log message to activity log"""
