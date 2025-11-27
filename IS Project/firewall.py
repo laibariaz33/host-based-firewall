@@ -188,40 +188,54 @@ class EnhancedFirewall:
         return min_priority <= self.log_level_priority[LogLevel.DEBUG]
 
     def _emit_debug_packet_details(self, packet_info, match_info, policy_actions, decision, decision_source):
-        """Emit detailed debug context for packet processing."""
         if not self._is_debug_enabled():
             return
-        
+
         timestamp = datetime.now().strftime("%H:%M:%S")
-        src = f"{packet_info.src_ip}:{packet_info.src_port}" if packet_info.src_port else packet_info.src_ip
-        dst = f"{packet_info.dst_ip}:{packet_info.dst_port}" if packet_info.dst_port else packet_info.dst_ip
-        policy_str = ','.join(policy_actions) if policy_actions else 'none'
-        parts = [
-            f"decision={'ALLOW' if decision else 'BLOCK'}",
-            f"source={decision_source}",
-            f"rule={match_info.get('rule_name') or 'default'}",
-            f"policy={policy_str}",
-            f"state={match_info.get('connection_state') or 'none'}"
-        ]
-        debug_text = f"[{timestamp}] 🛠 DEBUG | {packet_info.protocol:4} | {src} → {dst} | " + " | ".join(parts)
+        src = f"{packet_info.src_ip}:{packet_info.src_port}" if getattr(packet_info, 'src_port', None) else packet_info.src_ip
+        dst = f"{packet_info.dst_ip}:{packet_info.dst_port}" if getattr(packet_info, 'dst_port', None) else packet_info.dst_ip
+        policy_str = ', '.join(policy_actions) if policy_actions else 'none'
+        decision_str = 'ALLOW' if decision else 'BLOCK'
+        rule_name = match_info.get('rule_name') or 'default'
+        state = match_info.get('connection_state') or 'none'
+
+        # Header (print only once)
+        header = (
+            f"{'TIME':<10} | {'STATE':<10} | {'POLICY':<20} | {'ACTION':<6} | {'PROTO':<6} | "
+            f"{'SOURCE':<23} | {'DESTINATION':<23} | {'RULE':<25}"
+        )
+
+        if not hasattr(self, "_header_logged"):
+            self._append_packet_log(header, LogLevel.DEBUG)
+            self._append_packet_log("-" * len(header), LogLevel.DEBUG)
+            self._header_logged = True
+
+        # Packet log row
+        debug_text = (
+            f"{timestamp:<10} | {state:<10} | {policy_str:<20} | {decision_str:<6} | {packet_info.protocol:<6} | "
+            f"{src:<23} | {dst:<23} | {rule_name:<25}"
+        )
+
         self._append_packet_log(debug_text, LogLevel.DEBUG)
-        
+
+        # Structured logging
         self.logger.log_event(FirewallEvent(
             timestamp=datetime.now(),
             event_type="PACKET_DEBUG",
             level=LogLevel.DEBUG,
-            message="; ".join(parts),
+            message=f"decision={decision_str}; rule={rule_name}; policy={policy_str}; state={state}",
             source_ip=packet_info.src_ip,
             dest_ip=packet_info.dst_ip,
             protocol=packet_info.protocol,
-            action="ALLOW" if decision else "BLOCKED",
+            action=decision_str,
             rule_id=match_info.get('rule_id'),
             additional_data={
-                'decision_source': decision_source,
                 'policy_actions': policy_actions,
-                'connection_state': match_info.get('connection_state')
+                'connection_state': state,
+                'decision_source': decision_source
             }
         ))
+
 
     def reload_configuration(self) -> bool:
         """Live-reload configuration and policies"""
