@@ -13,7 +13,7 @@
     "priority": 5,
     "description": "Critical: Block RDP attacks from internet. Only allow RDP from LAN.",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "block_telnet",
@@ -29,7 +29,7 @@
     "priority": 5,
     "description": "Critical: Block insecure Telnet protocol. Use SSH instead.",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "block_smb_external",
@@ -45,7 +45,7 @@
     "priority": 5,
     "description": "Critical: Block SMB/CIFS from internet to prevent ransomware.",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_lan_traffic",
@@ -60,8 +60,8 @@
     "enabled": true,
     "priority": 10,
     "description": "Allow all traffic within local network (192.168.x.x)",
-    "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "hit_count": 1,
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_lan_10",
@@ -77,7 +77,7 @@
     "priority": 10,
     "description": "Optional: Enable if you use 10.x.x.x private network. Disabled by default.",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_dns_out",
@@ -93,7 +93,7 @@
     "priority": 20,
     "description": "Essential: Allow DNS queries for domain name resolution",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_dns_in",
@@ -109,7 +109,7 @@
     "priority": 20,
     "description": "Essential: Allow DNS responses from DNS servers",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_ntp",
@@ -125,7 +125,7 @@
     "priority": 25,
     "description": "Recommended: Allow NTP for system clock synchronization",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_http_out",
@@ -141,7 +141,7 @@
     "priority": 30,
     "description": "Allow outbound HTTP web browsing (unencrypted)",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_http_in",
@@ -157,7 +157,7 @@
     "priority": 30,
     "description": "Allow incoming HTTP responses",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_https_out",
@@ -172,8 +172,8 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow outbound HTTPS secure web browsing",
-    "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "hit_count": 23,
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_https_in",
@@ -188,8 +188,8 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow incoming HTTPS responses",
-    "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "hit_count": 31,
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_ssh_out",
@@ -205,7 +205,7 @@
     "priority": 40,
     "description": "Optional: Enable if you need to SSH to remote servers",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_ssh_lan",
@@ -221,7 +221,7 @@
     "priority": 40,
     "description": "Optional: Enable for secure remote management from LAN only",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_ftp",
@@ -237,7 +237,7 @@
     "priority": 45,
     "description": "Optional: FTP file transfer (INSECURE - use SFTP/FTPS instead)",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_smtp_out",
@@ -253,7 +253,7 @@
     "priority": 50,
     "description": "Optional: Enable if you send email via desktop client (port 587 secure)",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_imap",
@@ -269,7 +269,7 @@
     "priority": 50,
     "description": "Optional: Enable for IMAP email retrieval (port 993 secure)",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_pop3",
@@ -285,7 +285,7 @@
     "priority": 50,
     "description": "Optional: Enable for POP3 email retrieval (port 995 secure)",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_openvpn",
@@ -301,7 +301,7 @@
     "priority": 55,
     "description": "Optional: Enable if you use OpenVPN",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_icmp",
@@ -317,7 +317,7 @@
     "priority": 60,
     "description": "Recommended: Allow ping for network diagnostics",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "block_youtube",
@@ -333,7 +333,7 @@
     "priority": 70,
     "description": "Optional: Block YouTube (may not work with VPN/DNS changes)",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "log_unknown_traffic",
@@ -348,8 +348,8 @@
     "enabled": true,
     "priority": 90,
     "description": "Log traffic not matching other rules for analysis",
-    "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "hit_count": 48,
+    "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "default_deny",
@@ -365,6 +365,54 @@
     "priority": 100,
     "description": "Default policy: Deny all traffic not explicitly allowed",
     "hit_count": 0,
-    "created_at": "2025-11-27T00:00:00.000000"
+    "created_at": "2025-11-27T00:00:00"
+  },
+  {
+    "id": "rule_1",
+    "name": "Allow Local Network",
+    "action": "ALLOW",
+    "direction": "BOTH",
+    "protocol": "ANY",
+    "src_ip": "192.168.0.0/24",
+    "dst_ip": "192.168.0.0/24",
+    "src_port": null,
+    "dst_port": null,
+    "enabled": true,
+    "priority": 100,
+    "description": "",
+    "hit_count": 0,
+    "created_at": "2025-11-27T19:09:08.421828"
+  },
+  {
+    "id": "rule_2",
+    "name": "Allow Multicast (mDNS)",
+    "action": "ALLOW",
+    "direction": "BOTH",
+    "protocol": "UDP",
+    "src_ip": "192.168.0.0/24",
+    "dst_ip": "224.0.0.0/24",
+    "src_port": null,
+    "dst_port": 5353,
+    "enabled": true,
+    "priority": 100,
+    "description": "Allow Multicast (mDNS)",
+    "hit_count": 0,
+    "created_at": "2025-11-27T19:11:15.074029"
+  },
+  {
+    "id": "rule_3",
+    "name": "Allow Localhost Traffic",
+    "action": "ALLOW",
+    "direction": "BOTH",
+    "protocol": "ANY",
+    "src_ip": "127.0.0.1",
+    "dst_ip": "127.0.0.1",
+    "src_port": null,
+    "dst_port": null,
+    "enabled": true,
+    "priority": 100,
+    "description": "Allow Localhost Traffic",
+    "hit_count": 0,
+    "created_at": "2025-11-27T19:12:27.290601"
   }
 ]
