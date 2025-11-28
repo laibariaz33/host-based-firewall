@@ -485,8 +485,10 @@ class EnhancedFirewall:
 
     def process_packet(self, packet_info: PacketInfo) -> tuple[bool, dict]:
         '''Process a packet through rules, stateful inspection, and policy'''
+        packet_counted = False
         try:
             self.stats['packets_processed'] += 1
+            packet_counted = True
 
             # ====== NEW: DoS Protection Check ======
             dos_block, dos_reason = self.security_enhancer.check_dos_protection(packet_info)
@@ -576,6 +578,24 @@ class EnhancedFirewall:
 
         except Exception as e:
             self.log_callback(f"❌ Processing error: {e}")
+            # If packet was processed but exception occurred, count it as blocked
+            # Only increment blocked if packet was already counted as processed
+            if packet_counted:
+                self.stats['packets_blocked'] += 1
+            else:
+                # Edge case: exception occurred before incrementing processed
+                # Count it as both processed and blocked
+                self.stats['packets_processed'] += 1
+                self.stats['packets_blocked'] += 1
+            try:
+                self.logger.log_packet_blocked(
+                    getattr(packet_info, 'src_ip', 'unknown'),
+                    getattr(packet_info, 'dst_ip', 'unknown'),
+                    getattr(packet_info, 'protocol', 'unknown'),
+                    reason="Processing Error"
+                )
+            except Exception:
+                pass  # If logging also fails, just continue
             return False, {}
 
     def get_statistics(self):
@@ -604,7 +624,10 @@ class EnhancedFirewallGUI:
         self.auto_refresh_thread = None
         self.auto_refresh_running = False
         self.packet_refresh_paused = False
+        self.stats_refresh_paused = False
         self.refresh_interval = 2
+        self.stats_refresh_interval = 1000  # milliseconds (1 second)
+        self.stats_refresh_job = None
         
         # Search variables
         self.search_var = tk.StringVar()
@@ -631,6 +654,9 @@ class EnhancedFirewallGUI:
         self.performance_analyzer = PerformanceAnalyzer(self.notebook)
         perf_frame = self.performance_analyzer.get_frame()
         self.notebook.add(perf_frame, text="Performance")
+        
+        # Start auto-refresh for statistics
+        self._start_stats_auto_refresh()
 
     def _insert_text(self, widget, text):
         """Temporarily enable widget, insert text, then disable it again"""
@@ -661,6 +687,9 @@ class EnhancedFirewallGUI:
 
         self.stats_btn = ttk.Button(control_frame, text="🔄 Refresh", command=self.refresh_stats, width=15)
         self.stats_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.stats_pause_btn = ttk.Button(control_frame, text="⏸ Pause Auto-Refresh", command=self.toggle_stats_refresh, width=18)
+        self.stats_pause_btn.pack(side=tk.LEFT, padx=5)
 
         # Status display
         status_frame = ttk.LabelFrame(dashboard_frame, text="⚡ Status")
@@ -946,6 +975,35 @@ class EnhancedFirewallGUI:
         self.firewall.stop()
         self.status_label.config(text="Firewall: Stopped", foreground="red")
 
+    def toggle_stats_refresh(self):
+        """Toggle pause/resume of statistics auto-refresh"""
+        self.stats_refresh_paused = not self.stats_refresh_paused
+        if self.stats_refresh_paused:
+            # Cancel the scheduled refresh
+            if self.stats_refresh_job:
+                self.root.after_cancel(self.stats_refresh_job)
+                self.stats_refresh_job = None
+            self.stats_pause_btn.config(text="▶ Resume Auto-Refresh")
+            self.log_message("📊 Statistics auto-refresh paused")
+        else:
+            self.stats_pause_btn.config(text="⏸ Pause Auto-Refresh")
+            self.log_message("📊 Statistics auto-refresh resumed")
+            # Resume auto-refresh
+            self._start_stats_auto_refresh()
+    
+    def _start_stats_auto_refresh(self):
+        """Start auto-refresh for statistics using tkinter's after method"""
+        # Cancel any existing refresh job
+        if self.stats_refresh_job:
+            self.root.after_cancel(self.stats_refresh_job)
+            self.stats_refresh_job = None
+        
+        # Only schedule if not paused
+        if not self.stats_refresh_paused:
+            self.refresh_stats()
+            # Schedule next refresh
+            self.stats_refresh_job = self.root.after(self.stats_refresh_interval, self._start_stats_auto_refresh)
+    
     def refresh_stats(self):
         """Refresh statistics display"""
         try:

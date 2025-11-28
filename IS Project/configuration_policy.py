@@ -563,7 +563,7 @@ class ConfigurationGUI:
         ttk.Label(general_frame, text="Log Level:").pack(anchor=tk.W, padx=20, pady=(10, 0))
         self.log_level_var = tk.StringVar(value=self.config_manager.get_config().log_level)
         ttk.Combobox(general_frame, textvariable=self.log_level_var,
-                    values=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]).pack(anchor=tk.W, padx=40)
+                    values=[ "INFO", "WARNING", "ERROR", "CRITICAL"]).pack(anchor=tk.W, padx=40)
     
     def _create_security_tab(self):
         """Create security configuration tab"""
