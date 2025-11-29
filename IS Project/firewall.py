@@ -526,30 +526,16 @@ class EnhancedFirewall:
             rule_allow, matching_rule = self.rule_engine.evaluate_packet(packet_info)
             self.stats['rules_evaluated'] += 1
 
-<<<<<<< Updated upstream
-            # Policy evaluation (unchanged)
-            policy_actions = self.policy_manager.evaluate_policies(packet_info)
-            policy_forced_allow = any(a.name == 'ALLOW' for a in policy_actions)
-            policy_forced_deny = any(a.name == 'DENY' or a.name == 'QUARANTINE' for a in policy_actions)
-=======
             # Policy evaluation
             policy_actions = []
             policy_forced_allow = False
             policy_forced_deny = False
->>>>>>> Stashed changes
 
             # Decision precedence: explicit rule > policy > stateful > default
             if matching_rule:
                 final_decision = rule_allow
                 decision_source = 'rule'
-<<<<<<< Updated upstream
-            elif policy_forced_deny or policy_forced_allow:
-                final_decision = not policy_forced_deny
-                decision_source = 'policy'
-            elif connection_state is not None and self.security_enhancer.should_apply_stateful_inspection():
-=======
             elif connection_state is not None:
->>>>>>> Stashed changes
                 final_decision = stateful_allow
                 decision_source = 'stateful'
             else:
