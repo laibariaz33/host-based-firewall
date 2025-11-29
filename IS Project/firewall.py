@@ -11,7 +11,7 @@ from rule_engine import RuleEngine, RuleAction, RuleDirection, Protocol, Firewal
 from stateful_inspection import StatefulInspector, ConnectionState
 from rule_management import RuleManager
 from logging_monitoring import FirewallLogger, FirewallMonitor, LogLevel, FirewallEvent
-from configuration_policy import ConfigurationManager, PolicyManager
+from configuration_policy import ConfigurationManager
 from performance_analyzer import PerformanceAnalyzer
 
 from collections import defaultdict
@@ -258,7 +258,6 @@ class EnhancedFirewall:
         cfg = self.config_manager.get_config()
         self.logger = FirewallLogger(min_level=cfg.log_level)
         self.monitor = FirewallMonitor(self.logger)
-        self.policy_manager = PolicyManager()
         
         # Packet log buffer for real-time display
         self.packet_log_buffer = deque(maxlen=1000)
@@ -464,7 +463,7 @@ class EnhancedFirewall:
         """Live-reload configuration and policies"""
         try:
             cfg_ok = self.config_manager.load_configuration()
-            pol_ok = self.policy_manager.load_policies()
+            
 
             # Apply default action
             try:
@@ -648,20 +647,17 @@ class EnhancedFirewall:
             rule_allow, matching_rule = self.rule_engine.evaluate_packet(packet_info)
             self.stats['rules_evaluated'] += 1
 
-            # ====== LAYER 6: Policy Manager ======
-            policy_actions = self.policy_manager.evaluate_policies(packet_info)
-            policy_forced_allow = any(a.name == 'ALLOW' for a in policy_actions)
-            policy_forced_deny = any(a.name == 'DENY' or a.name == 'QUARANTINE' for a in policy_actions)
+            # Policy evaluation
+            policy_actions = []
+            policy_forced_allow = False
+            policy_forced_deny = False
 
             # ====== DECISION PRECEDENCE ======
             # Order: explicit rule > policy > stateful > default
             if matching_rule:
                 final_decision = rule_allow
                 decision_source = 'rule'
-            elif policy_forced_deny or policy_forced_allow:
-                final_decision = not policy_forced_deny
-                decision_source = 'policy'
-            elif connection_state is not None and self.security_enhancer.should_apply_stateful_inspection():
+            elif connection_state is not None:
                 final_decision = stateful_allow
                 decision_source = 'stateful'
             else:
@@ -675,7 +671,7 @@ class EnhancedFirewall:
                 'default_action': self.rule_engine.default_action.value if decision_source == 'default' else None,
                 'connection_state': connection_state.value if connection_state else None,
                 'decision_source': decision_source,
-                'policy_actions': [a.value for a in policy_actions] if policy_actions else [],
+                'policy_actions': []
             }
 
             # Update stats
@@ -1033,7 +1029,6 @@ class EnhancedFirewallGUI:
         self.config_gui = ConfigurationGUI(
             config_frame,
             self.firewall.config_manager,
-            self.firewall.policy_manager,
             on_save_callback=self._on_configuration_saved
         )
 
