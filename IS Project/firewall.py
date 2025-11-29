@@ -67,7 +67,60 @@ class SecurityEnhancer:
                     self.log_callback(f"🔓 Unblocked IP: {ip}")
         
         self.last_cleanup = now
-    
+
+    def check_network_policy(self, packet_info) -> tuple[bool, str, str]:
+        """
+        Check if packet should be blocked/allowed based on network lists
+        Returns: (should_process, action, reason)
+            - should_process: False means skip further processing
+            - action: 'BLOCK' or 'ALLOW'
+            - reason: explanation string
+        """
+        config = self.config_manager.get_config()
+        src_ip = packet_info.src_ip
+        dst_ip = packet_info.dst_ip
+        
+        # Check if source IP is in blocked networks
+        for blocked_network in config.blocked_networks:
+            if self._ip_in_network(src_ip, blocked_network):
+                return False, 'BLOCK', f"Source IP {src_ip} in blocked network {blocked_network}"
+            if self._ip_in_network(dst_ip, blocked_network):
+                return False, 'BLOCK', f"Destination IP {dst_ip} in blocked network {blocked_network}"
+        
+        # Check if source IP is in trusted networks (allow and skip further checks)
+        for trusted_network in config.trusted_networks:
+            if self._ip_in_network(src_ip, trusted_network):
+                return False, 'ALLOW', f"Source IP {src_ip} in trusted network {trusted_network}"
+            if self._ip_in_network(dst_ip, trusted_network):
+                return False, 'ALLOW', f"Destination IP {dst_ip} in trusted network {trusted_network}"
+        
+        # No network policy match - continue normal processing
+        return True, '', ''
+
+    def _ip_in_network(self, ip: str, network: str) -> bool:
+        """
+        Check if IP is in network (supports single IP or CIDR notation)
+        Examples: 
+            - "192.168.1.100" matches "192.168.1.100"
+            - "192.168.1.100" matches "192.168.1.0/24"
+            - "10.0.0.5" matches "10.0.0.0/8"
+        """
+        try:
+            # Handle single IP
+            if '/' not in network:
+                return ip == network
+            
+            # Handle CIDR notation
+            import ipaddress
+            ip_obj = ipaddress.ip_address(ip)
+            network_obj = ipaddress.ip_network(network, strict=False)
+            return ip_obj in network_obj
+        except Exception as e:
+            self.log_callback(f"⚠️ Network check error for {ip} in {network}: {e}")
+            return False
+
+
+        
     def cleanup_ids_tracking(self):
         """Cleanup old IDS tracking data (every 5 minutes)"""
         now = datetime.now()
@@ -481,102 +534,39 @@ class EnhancedFirewall:
         except Exception as e:
             self.log_callback(f"❌ Reload error: {e}")
             return False
-    # ============================================================================
-# NETWORK FILTERING FIX - Add this to EnhancedFirewall class
-# Location: Add after line ~540 in the main file (after DoS/IDS checks)
-# ============================================================================
-
-    def _check_network_policy(self, packet_info: PacketInfo) -> tuple[bool, str]:
-        """
-        Check packet against trusted/blocked network lists
-        Returns: (should_allow, reason)
-        
-        Priority:
-        1. Blocked networks (explicit deny) - highest priority
-        2. Trusted networks (explicit allow) - medium priority  
-        3. None matched - continue to rule evaluation
-        """
-        try:
-            config = self.config_manager.get_config()
-            src_ip = packet_info.src_ip
-            dst_ip = packet_info.dst_ip
-            
-            # Check if source IP is in BLOCKED networks (highest priority)
-            if config.blocked_networks:
-                for blocked_net in config.blocked_networks:
-                    if self._ip_matches_network(src_ip, blocked_net):
-                        return False, f"Blocked Network ({blocked_net})"
-            
-            # Check if destination IP is in BLOCKED networks
-            if config.blocked_networks:
-                for blocked_net in config.blocked_networks:
-                    if self._ip_matches_network(dst_ip, blocked_net):
-                        return False, f"Blocked Network ({blocked_net})"
-            
-            # Check if source IP is in TRUSTED networks (medium priority)
-            if config.trusted_networks:
-                for trusted_net in config.trusted_networks:
-                    if self._ip_matches_network(src_ip, trusted_net):
-                        return True, f"Trusted Network ({trusted_net})"
-            
-            # Check if destination IP is in TRUSTED networks
-            if config.trusted_networks:
-                for trusted_net in config.trusted_networks:
-                    if self._ip_matches_network(dst_ip, trusted_net):
-                        return True, f"Trusted Network ({trusted_net})"
-            
-            # No network policy matched - continue to next stage
-            return None, ""
-            
-        except Exception as e:
-            self.log_callback(f"⚠️ Network policy error: {e}")
-            return None, ""
-
-    def _ip_matches_network(self, ip: str, network: str) -> bool:
-        """
-        Check if IP matches network pattern
-        Supports:
-        - Exact match: 192.168.1.100
-        - CIDR notation: 192.168.1.0/24
-        - Wildcard: 192.168.1.*
-        """
-        try:
-            # Exact match
-            if ip == network:
-                return True
-            
-            # Wildcard match (e.g., 192.168.1.*)
-            if '*' in network:
-                pattern = network.replace('.', r'\.').replace('*', r'\d+')
-                import re
-                return bool(re.match(f"^{pattern}$", ip))
-            
-            # CIDR notation (e.g., 192.168.1.0/24)
-            if '/' in network:
-                return self._ip_in_cidr(ip, network)
-            
-            return False
-            
-        except Exception as e:
-            print(f"IP match error: {e}")
-            return False
-
-    def _ip_in_cidr(self, ip: str, cidr: str) -> bool:
-        """Check if IP is in CIDR range"""
-        try:
-            import ipaddress
-            return ipaddress.ip_address(ip) in ipaddress.ip_network(cidr, strict=False)
-        except Exception:
-            return False
 
     def process_packet(self, packet_info: PacketInfo) -> tuple[bool, dict]:
-        """Process a packet through all security layers"""
+        '''Process a packet through rules, stateful inspection, and policy'''
         packet_counted = False
         try:
             self.stats['packets_processed'] += 1
             packet_counted = True
 
-            # ====== LAYER 1: DoS Protection ======
+            # ====== NEW: Network Policy Check (HIGHEST PRIORITY) ======
+            should_continue, net_action, net_reason = self.security_enhancer.check_network_policy(packet_info)
+            
+            if not should_continue:
+                # Network policy made a decision - apply it
+                if net_action == 'BLOCK':
+                    self.stats['packets_blocked'] += 1
+                    self.logger.log_packet_blocked(
+                        packet_info.src_ip, 
+                        packet_info.dst_ip, 
+                        packet_info.protocol, 
+                        reason=net_reason
+                    )
+                    return False, {'rule_name': net_reason, 'decision_source': 'network_policy'}
+                elif net_action == 'ALLOW':
+                    self.stats['packets_allowed'] += 1
+                    self.logger.log_packet_allowed(
+                        packet_info.src_ip, 
+                        packet_info.dst_ip, 
+                        packet_info.protocol, 
+                        reason=net_reason
+                    )
+                    return True, {'rule_name': net_reason, 'decision_source': 'network_policy'}
+
+            # ====== DoS Protection Check ======
             dos_block, dos_reason = self.security_enhancer.check_dos_protection(packet_info)
             if dos_block:
                 self.stats['packets_blocked'] += 1
@@ -588,7 +578,7 @@ class EnhancedFirewall:
                 )
                 return False, {'rule_name': dos_reason, 'decision_source': 'dos_protection'}
 
-            # ====== LAYER 2: Intrusion Detection ======
+            # ====== Intrusion Detection Check ======
             ids_alert, ids_reason = self.security_enhancer.check_intrusion_detection(packet_info)
             if ids_alert:
                 self.logger.log_event(FirewallEvent(
@@ -598,42 +588,7 @@ class EnhancedFirewall:
                     message=f"{ids_reason} from {packet_info.src_ip}"
                 ))
 
-            # ====== LAYER 3: Network Policy (NEW!) ======
-            network_decision, network_reason = self._check_network_policy(packet_info)
-            if network_decision is not None:  # Explicit allow/deny from network policy
-                if network_decision:
-                    self.stats['packets_allowed'] += 1
-                    self.logger.log_packet_allowed(
-                        packet_info.src_ip, 
-                        packet_info.dst_ip, 
-                        packet_info.protocol, 
-                        reason=network_reason
-                    )
-                else:
-                    self.stats['packets_blocked'] += 1
-                    self.logger.log_packet_blocked(
-                        packet_info.src_ip, 
-                        packet_info.dst_ip, 
-                        packet_info.protocol, 
-                        reason=network_reason
-                    )
-                
-                match_info = {
-                    'rule_name': network_reason,
-                    'decision_source': 'network_policy'
-                }
-                
-                self._emit_debug_packet_details(
-                    packet_info,
-                    match_info,
-                    [],
-                    network_decision,
-                    'network_policy'
-                )
-                
-                return network_decision, match_info
-
-            # ====== LAYER 4: Stateful Inspection ======
+            # ====== Stateful inspection ======
             stateful_allow = True
             connection_state = None
             connection = None
@@ -643,17 +598,11 @@ class EnhancedFirewall:
                 if connection:
                     self.stats['connections_tracked'] += 1
 
-            # ====== LAYER 5: Rule Engine ======
+            # Rule engine evaluation
             rule_allow, matching_rule = self.rule_engine.evaluate_packet(packet_info)
             self.stats['rules_evaluated'] += 1
 
-            # Policy evaluation
-            policy_actions = []
-            policy_forced_allow = False
-            policy_forced_deny = False
-
-            # ====== DECISION PRECEDENCE ======
-            # Order: explicit rule > policy > stateful > default
+            # Decision precedence: explicit rule > stateful > default
             if matching_rule:
                 final_decision = rule_allow
                 decision_source = 'rule'
@@ -710,7 +659,9 @@ class EnhancedFirewall:
                 )
             except Exception:
                 pass
-            return False, {}  
+            return False, {}
+
+
 
     def get_statistics(self):
         """Get firewall statistics"""

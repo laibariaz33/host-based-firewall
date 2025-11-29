@@ -60,7 +60,7 @@
     "enabled": true,
     "priority": 10,
     "description": "Allow all traffic within local network (192.168.x.x)",
-    "hit_count": 86,
+    "hit_count": 1,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -92,7 +92,7 @@
     "enabled": true,
     "priority": 20,
     "description": "Essential: Allow DNS queries for domain name resolution",
-    "hit_count": 42,
+    "hit_count": 0,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -108,7 +108,7 @@
     "enabled": true,
     "priority": 20,
     "description": "Essential: Allow DNS responses from DNS servers",
-    "hit_count": 42,
+    "hit_count": 0,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -140,7 +140,7 @@
     "enabled": true,
     "priority": 30,
     "description": "Allow outbound HTTP web browsing (unencrypted)",
-    "hit_count": 25,
+    "hit_count": 0,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -156,7 +156,7 @@
     "enabled": true,
     "priority": 30,
     "description": "Allow incoming HTTP responses",
-    "hit_count": 25,
+    "hit_count": 0,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -172,7 +172,7 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow outbound HTTPS secure web browsing",
-    "hit_count": 434,
+    "hit_count": 23,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -188,7 +188,7 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow incoming HTTPS responses",
-    "hit_count": 405,
+    "hit_count": 31,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -316,7 +316,7 @@
     "enabled": true,
     "priority": 60,
     "description": "Recommended: Allow ping for network diagnostics",
-    "hit_count": 3,
+    "hit_count": 0,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -329,7 +329,7 @@
     "dst_ip": "142.250.0.0/15",
     "src_port": null,
     "dst_port": null,
-    "enabled": true,
+    "enabled": false,
     "priority": 70,
     "description": "Optional: Block YouTube (may not work with VPN/DNS changes)",
     "hit_count": 0,
@@ -348,7 +348,7 @@
     "enabled": true,
     "priority": 90,
     "description": "Log traffic not matching other rules for analysis",
-    "hit_count": 1278,
+    "hit_count": 48,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -377,7 +377,7 @@
     "dst_ip": "192.168.0.0/24",
     "src_port": null,
     "dst_port": null,
-    "enabled": false,
+    "enabled": true,
     "priority": 100,
     "description": "",
     "hit_count": 0,
