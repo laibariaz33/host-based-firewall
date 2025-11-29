@@ -240,6 +240,61 @@ class ConfigurationGUI:
         ttk.Button(controls, text="Save Configuration", command=self._on_save).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls, text="Apply Live Config", command=self._on_apply_live).pack(side=tk.LEFT, padx=5)
     
+    def _validate_networks(self):
+        """Validate network entries before saving"""
+        import ipaddress
+        
+        trusted_text = self.trusted_networks_text.get('1.0', tk.END).strip()
+        blocked_text = self.blocked_networks_text.get('1.0', tk.END).strip()
+        
+        trusted_lines = [line.strip() for line in trusted_text.split('\n') if line.strip()]
+        blocked_lines = [line.strip() for line in blocked_text.split('\n') if line.strip()]
+        
+        errors = []
+        warnings = []
+        
+        # Validate trusted networks
+        for line in trusted_lines:
+            try:
+                if '/' in line:
+                    ipaddress.ip_network(line, strict=False)
+                else:
+                    ipaddress.ip_address(line)
+            except ValueError:
+                errors.append(f"Invalid trusted network: {line}")
+        
+        # Validate blocked networks
+        for line in blocked_lines:
+            try:
+                if '/' in line:
+                    ipaddress.ip_network(line, strict=False)
+                else:
+                    ipaddress.ip_address(line)
+            except ValueError:
+                errors.append(f"Invalid blocked network: {line}")
+        
+        # Check for overlaps
+        for trusted in trusted_lines:
+            for blocked in blocked_lines:
+                if trusted == blocked:
+                    warnings.append(f"⚠️ {trusted} is in BOTH trusted and blocked lists!")
+        
+        if errors:
+            messagebox.showerror("Validation Error", "\n".join(errors))
+            self.validation_label.config(text="❌ Validation failed", foreground="red")
+            return False
+        elif warnings:
+            result = messagebox.askokcancel("Validation Warning", 
+                                            "\n".join(warnings) + "\n\nContinue anyway?")
+            if not result:
+                self.validation_label.config(text="⚠️ Validation warnings", foreground="orange")
+                return False
+        
+        self.validation_label.config(text=f"✅ Valid ({len(trusted_lines)} trusted, {len(blocked_lines)} blocked)", 
+                                    foreground="green")
+        return True
+
+    
     def _create_general_tab(self):
         """Create general configuration tab"""
         general_frame = ttk.Frame(self.notebook)
@@ -288,10 +343,11 @@ class ConfigurationGUI:
                        variable=self.dos_var).pack(anchor=tk.W, padx=20)
     
     def _create_network_tab(self):
-        """Create network configuration tab"""
+        """Create enhanced network configuration tab with validation"""
         network_frame = ttk.Frame(self.notebook)
         self.notebook.add(network_frame, text="Network")
         
+<<<<<<< HEAD
         # Network settings
         ttk.Label(network_frame, text="Network Settings", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=5)
         
@@ -307,6 +363,69 @@ class ConfigurationGUI:
         self.blocked_networks_text.pack(anchor=tk.W, padx=40)
         self.blocked_networks_text.insert(tk.END, '\n'.join(self.config_manager.get_config().blocked_networks))
     
+=======
+        # Instructions
+        instructions = ttk.LabelFrame(network_frame, text="📖 Instructions")
+        instructions.pack(fill=tk.X, padx=10, pady=5)
+        ttk.Label(instructions, text="• Trusted Networks: Traffic from/to these IPs is ALWAYS ALLOWED", 
+                foreground="green").pack(anchor=tk.W, padx=10, pady=2)
+        ttk.Label(instructions, text="• Blocked Networks: Traffic from/to these IPs is ALWAYS BLOCKED", 
+                foreground="red").pack(anchor=tk.W, padx=10, pady=2)
+        ttk.Label(instructions, text="• Format: One IP per line (e.g., 192.168.1.100 or 10.0.0.0/24)", 
+                foreground="blue").pack(anchor=tk.W, padx=10, pady=2)
+        
+        # Trusted networks
+        trusted_frame = ttk.LabelFrame(network_frame, text="✅ Trusted Networks (Whitelist)")
+        trusted_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        ttk.Label(trusted_frame, text="Add IPs or networks that should ALWAYS be allowed:").pack(anchor=tk.W, padx=10, pady=5)
+        
+        trusted_scroll = ttk.Scrollbar(trusted_frame)
+        trusted_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.trusted_networks_text = tk.Text(trusted_frame, height=6, width=50, 
+                                            yscrollcommand=trusted_scroll.set,
+                                            font=("Consolas", 10))
+        self.trusted_networks_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        trusted_scroll.config(command=self.trusted_networks_text.yview)
+        
+        current_trusted = self.config_manager.get_config().trusted_networks
+        self.trusted_networks_text.insert(tk.END, '\n'.join(current_trusted))
+        
+        ttk.Label(trusted_frame, text="Examples: 192.168.1.100, 10.0.0.0/8, 172.16.0.0/16", 
+                foreground="gray").pack(anchor=tk.W, padx=10, pady=2)
+        
+        # Blocked networks
+        blocked_frame = ttk.LabelFrame(network_frame, text="🚫 Blocked Networks (Blacklist)")
+        blocked_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        ttk.Label(blocked_frame, text="Add IPs or networks that should ALWAYS be blocked:").pack(anchor=tk.W, padx=10, pady=5)
+        
+        blocked_scroll = ttk.Scrollbar(blocked_frame)
+        blocked_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.blocked_networks_text = tk.Text(blocked_frame, height=6, width=50,
+                                            yscrollcommand=blocked_scroll.set,
+                                            font=("Consolas", 10))
+        self.blocked_networks_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        blocked_scroll.config(command=self.blocked_networks_text.yview)
+        
+        current_blocked = self.config_manager.get_config().blocked_networks
+        self.blocked_networks_text.insert(tk.END, '\n'.join(current_blocked))
+        
+        ttk.Label(blocked_frame, text="Examples: 203.0.113.0/24, 198.51.100.50", 
+                foreground="gray").pack(anchor=tk.W, padx=10, pady=2)
+        
+        # Validation button
+        validate_btn_frame = ttk.Frame(network_frame)
+        validate_btn_frame.pack(fill=tk.X, padx=10, pady=5)
+        ttk.Button(validate_btn_frame, text="🔍 Validate Networks", 
+                command=self._validate_networks).pack(side=tk.LEFT, padx=5)
+        
+        self.validation_label = ttk.Label(validate_btn_frame, text="", foreground="blue")
+        self.validation_label.pack(side=tk.LEFT, padx=10)
+
+>>>>>>> 85e0e8911306e4ca72b6d358de5d7b08ec72394b
     def save_configuration(self):
         """Save all configuration changes to file only"""
         try:
