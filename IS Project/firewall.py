@@ -4,6 +4,10 @@ import threading
 import time
 from datetime import datetime
 from collections import deque
+import psutil
+import os
+
+
 
 # Import all modules
 from packet_capture import PacketCapture, PacketInfo
@@ -646,11 +650,15 @@ class EnhancedFirewallGUI:
         self._create_monitoring_tab()
         
         self._create_configuration_tab()
+        firewall_process = psutil.Process(os.getpid())
 
-        self.performance_analyzer = PerformanceAnalyzer(self.notebook)
+
+
+        self.performance_analyzer = PerformanceAnalyzer(self.notebook, firewall_process)
+
+
         perf_frame = self.performance_analyzer.get_frame()
-        self.notebook.add(perf_frame, text="Performance")
-        
+        self.notebook.add(perf_frame, text="⚡ Performance")
         # Start auto-refresh for statistics
         self._start_stats_auto_refresh()
 
@@ -911,21 +919,12 @@ class EnhancedFirewallGUI:
         self.config_gui = ConfigurationGUI(
             config_frame,
             self.firewall.config_manager,
-            on_save_callback=self._on_configuration_saved
+            on_save_callback=self.firewall.reload_configuration
         )
 
-        reload_frame = ttk.Frame(config_frame)
-        reload_frame.pack(fill=tk.X, padx=10, pady=6)
-        ttk.Button(reload_frame, text="🔄 Apply Config (Live)", command=self.reload_firewall_config).pack(side=tk.LEFT, padx=5)
+        
 
-    def reload_firewall_config(self):
-        """Trigger live reload of firewall configuration"""
-        ok = self.firewall.reload_configuration()
-        if ok:
-            messagebox.showinfo("Reload", "Configuration reloaded successfully.")
-        else:
-            messagebox.showwarning("Reload", "Reload completed with issues.")
-
+    
     def _on_configuration_saved(self):
         """Auto-apply configuration after saving"""
         ok = self.firewall.reload_configuration()

@@ -1,148 +1,152 @@
 import tkinter as tk
-from tkinter import ttk
-import threading
+from tkinter import ttk, Canvas
 import psutil
+import threading
 import time
+from collections import deque
+
 
 class PerformanceAnalyzer:
     """
-    This class creates a frame that can be embedded into another Tkinter GUI.
+    🎯 Firewall-Only Performance Monitor
+    Shows CPU %, RAM %, Network I/O, Disk I/O of the firewall process ONLY.
+    Includes real-time graphs (last 60 seconds).
     """
-    def __init__(self, parent):
+
+    def __init__(self, parent, firewall_process):
         self.parent = parent
+        self.firewall = firewall_process   # <- your firewall process (psutil.Process)
 
-        # Frame to hold performance stats
-        self.frame = ttk.Frame(self.parent)
+        # Graph data storage (last 60 seconds)
+        self.cpu_history = deque(maxlen=60)
+        self.memory_history = deque(maxlen=60)
+        self.net_history = deque(maxlen=60)
+        self.disk_history = deque(maxlen=60)
 
-        # Configure styles
-        self.style = ttk.Style()
-        self.style.theme_use('default')
-        self.style.configure("green.Horizontal.TProgressbar", foreground='#90CAF9', background='#90CAF9', troughcolor='#E3F2FD', thickness=18)
-        self.style.configure("yellow.Horizontal.TProgressbar", foreground='#FFB74D', background='#FFB74D', troughcolor='#FFF3E0', thickness=18)
-        self.style.configure("red.Horizontal.TProgressbar", foreground='#E57373', background='#E57373', troughcolor='#FFEBEE', thickness=18)
-        
-        # Title Section
-        title_label = ttk.Label(
-            self.frame,
-            text="Performance Monitor",
-            font=("Arial", 12)
-        )
-        title_label.pack(pady=(15, 20))
+        # Network and disk previous readings
+        self.prev_io = self.firewall.io_counters()
+        self.last_time = time.time()
 
-        # Main container with compact layout
-        main_container = ttk.Frame(self.frame)
-        main_container.pack(padx=40, pady=10)
+        # Main frame
+        self.frame = ttk.Frame(parent)
 
-        # === CPU Section ===
-        cpu_frame = ttk.Frame(main_container)
-        cpu_frame.pack(pady=8)
-        
-        cpu_label_text = ttk.Label(cpu_frame, text="CPU:", font=("Arial", 10), width=10, anchor="w")
-        cpu_label_text.pack(side="left", padx=(0, 10))
-        
-        self.cpu_label = ttk.Label(cpu_frame, text="0%", font=("Arial", 10), width=6, anchor="e")
-        self.cpu_label.pack(side="left")
-        
-        self.cpu_progress = ttk.Progressbar(
-            cpu_frame,
-            orient=tk.HORIZONTAL,
-            length=250,
-            mode='determinate',
-            style="green.Horizontal.TProgressbar"
-        )
-        self.cpu_progress.pack(side="left", padx=(10, 0))
+        # Create UI
+        self._create_gui()
 
-        # === Memory Section ===
-        mem_frame = ttk.Frame(main_container)
-        mem_frame.pack(pady=8)
-        
-        mem_label_text = ttk.Label(mem_frame, text="Memory:", font=("Arial", 10), width=10, anchor="w")
-        mem_label_text.pack(side="left", padx=(0, 10))
-        
-        self.mem_label = ttk.Label(mem_frame, text="0%", font=("Arial", 10), width=6, anchor="e")
-        self.mem_label.pack(side="left")
-        
-        self.mem_progress = ttk.Progressbar(
-            mem_frame,
-            orient=tk.HORIZONTAL,
-            length=250,
-            mode='determinate',
-            style="green.Horizontal.TProgressbar"
-        )
-        self.mem_progress.pack(side="left", padx=(10, 0))
-
-        # === Disk Section ===
-        disk_frame = ttk.Frame(main_container)
-        disk_frame.pack(pady=8)
-        
-        disk_label_text = ttk.Label(disk_frame, text="Disk:", font=("Arial", 10), width=10, anchor="w")
-        disk_label_text.pack(side="left", padx=(0, 10))
-        
-        self.disk_label = ttk.Label(disk_frame, text="0%", font=("Arial", 10), width=6, anchor="e")
-        self.disk_label.pack(side="left")
-        
-        self.disk_progress = ttk.Progressbar(
-            disk_frame,
-            orient=tk.HORIZONTAL,
-            length=250,
-            mode='determinate',
-            style="green.Horizontal.TProgressbar"
-        )
-        self.disk_progress.pack(side="left", padx=(10, 0))
-
-        # Start updating stats in background
+        # Update loop
         self.running = True
         threading.Thread(target=self._update_loop, daemon=True).start()
 
-    def _get_color_style(self, value):
-        if value <= 50:
-            return "green.Horizontal.TProgressbar"
-        elif value <= 80:
-            return "yellow.Horizontal.TProgressbar"
-        else:
-            return "red.Horizontal.TProgressbar"
+    # ---------------- GUI ----------------
+
+    def _create_gui(self):
+        title = ttk.Label(self.frame, text="🔥 Firewall Performance Monitor",
+                          font=("Arial", 16, "bold"))
+        title.pack(pady=10)
+
+        # CPU Section
+        self.cpu_label = ttk.Label(self.frame, text="CPU: 0%", font=("Arial", 14))
+        self.cpu_label.pack()
+        self.cpu_canvas = Canvas(self.frame, width=600, height=120, bg="white")
+        self.cpu_canvas.pack(pady=5)
+
+        # Memory Section
+        self.mem_label = ttk.Label(self.frame, text="Memory: 0%", font=("Arial", 14))
+        self.mem_label.pack()
+        self.mem_canvas = Canvas(self.frame, width=600, height=120, bg="white")
+        self.mem_canvas.pack(pady=5)
+
+        # Network Section
+        self.net_label = ttk.Label(self.frame, text="Network: 0 KB/s", font=("Arial", 14))
+        self.net_label.pack()
+        self.net_canvas = Canvas(self.frame, width=600, height=120, bg="white")
+        self.net_canvas.pack(pady=5)
+
+        # Disk Section
+        self.disk_label = ttk.Label(self.frame, text="Disk: 0 KB/s", font=("Arial", 14))
+        self.disk_label.pack()
+        self.disk_canvas = Canvas(self.frame, width=600, height=120, bg="white")
+        self.disk_canvas.pack(pady=5)
+
+    # ---------------- Fetch Firewall Stats ----------------
+
+    def _get_firewall_stats(self):
+        try:
+            cpu = self.firewall.cpu_percent(interval=0.1)
+            mem = self.firewall.memory_percent()
+
+            now = self.firewall.io_counters()
+            current_time = time.time()
+            dt = current_time - self.last_time
+
+            # Bytes per second (network + disk combined)
+            read_sec = (now.read_bytes - self.prev_io.read_bytes) / dt
+            write_sec = (now.write_bytes - self.prev_io.write_bytes) / dt
+
+            net_sec = (now.other_bytes - getattr(self.prev_io, "other_bytes", 0)) / dt if hasattr(now, "other_bytes") else 0
+
+            self.prev_io = now
+            self.last_time = current_time
+
+            return cpu, mem, read_sec, write_sec, net_sec
+
+        except Exception:
+            return 0, 0, 0, 0, 0
+
+    # ---------------- Graph Drawing ----------------
+
+    def _draw_graph(self, canvas, data, color):
+        canvas.delete("all")
+        if len(data) < 2:
+            return
+
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+
+        max_val = max(data) if max(data) > 0 else 1
+
+        points = []
+        for i, v in enumerate(data):
+            x = (i / len(data)) * w
+            y = h - (v / max_val) * h
+            points.append((x, y))
+
+        # Draw line
+        for i in range(len(points) - 1):
+            canvas.create_line(points[i][0], points[i][1],
+                               points[i+1][0], points[i+1][1],
+                               fill=color, width=2)
+
+    # ---------------- Update Loop ----------------
 
     def _update_loop(self):
         while self.running:
-            try:
-                cpu = psutil.cpu_percent(interval=1)
-                mem = psutil.virtual_memory().percent
-                disk = psutil.disk_usage('/').percent
+            cpu, mem, read_sec, write_sec, net_sec = self._get_firewall_stats()
 
-                # Update CPU
-                self.cpu_label.config(text=f"{cpu:.1f}%")
-                self.cpu_progress['value'] = cpu
-                self.cpu_progress.config(style=self._get_color_style(cpu))
+            # Update labels
+            self.cpu_label.config(text=f"CPU: {cpu:.1f}%")
+            self.mem_label.config(text=f"Memory: {mem:.1f}%")
+            self.net_label.config(text=f"Network: {(net_sec/1024):.1f} KB/s")
+            self.disk_label.config(text=f"Disk: {(read_sec+write_sec)/1024:.1f} KB/s")
 
-                # Update Memory
-                self.mem_label.config(text=f"{mem:.1f}%")
-                self.mem_progress['value'] = mem
-                self.mem_progress.config(style=self._get_color_style(mem))
+            # Update history for graphs
+            self.cpu_history.append(cpu)
+            self.memory_history.append(mem)
+            self.net_history.append(net_sec / 1024)
+            self.disk_history.append((read_sec + write_sec) / 1024)
 
-                # Update Disk
-                self.disk_label.config(text=f"{disk:.1f}%")
-                self.disk_progress['value'] = disk
-                self.disk_progress.config(style=self._get_color_style(disk))
-
-            except Exception as e:
-                print(f"Error fetching stats: {e}")
+            # Draw graphs
+            self._draw_graph(self.cpu_canvas, self.cpu_history, "#2196F3")
+            self._draw_graph(self.mem_canvas, self.memory_history, "#FF9800")
+            self._draw_graph(self.net_canvas, self.net_history, "#00BCD4")
+            self._draw_graph(self.disk_canvas, self.disk_history, "#9C27B0")
 
             time.sleep(1)
 
-    def stop(self):
-        self.running = False
+    # ---------------- Public ----------------
 
     def get_frame(self):
         return self.frame
 
-
-# Example usage for testing
-if __name__ == "__main__":
-    root = tk.Tk()
-    root.title("Performance Analyzer")
-    root.geometry("500x250")
-    
-    analyzer = PerformanceAnalyzer(root)
-    analyzer.get_frame().pack(fill="both", expand=True)
-    
-    root.mainloop()
+    def stop(self):
+        self.running = False

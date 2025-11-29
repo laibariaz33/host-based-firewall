@@ -17,6 +17,7 @@ class RuleManagementGUI:
     def __init__(self, parent, rule_engine: RuleEngine):
         self.parent = parent
         self.rule_engine = rule_engine
+        self.rule_engine.set_rules_changed_callback(self._refresh_rule_list)
         self.selected_rule = None
         self.last_selected_item = None
         self.auto_refresh_active = True
@@ -361,7 +362,6 @@ class RuleManagementGUI:
         right_buttons = ttk.Frame(button_frame)
         right_buttons.pack(side=tk.RIGHT)
         
-        ttk.Button(right_buttons, text="📥 Import", command=self._import_rules).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(right_buttons, text="📤 Export", command=self._export_rules).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(right_buttons, text="🔄 Reload", command=self._reload_rules).pack(side=tk.LEFT)
     
@@ -566,58 +566,7 @@ class RuleManagementGUI:
         
         return data
     
-    def _import_rules(self):
-        """Import rules from JSON file"""
-        try:
-            filename = filedialog.askopenfilename(
-                title="Import Rules",
-                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-            )
-            if filename:
-                with open(filename, 'r') as f:
-                    rules_data = json.load(f)
-                
-                imported = 0
-                duplicates = 0
-                failed = 0
-                
-                for rule_data in rules_data:
-                    if 'action' in rule_data:
-                        rule_data['action'] = RuleAction(rule_data['action'])
-                    if 'direction' in rule_data:
-                        rule_data['direction'] = RuleDirection(rule_data['direction'])
-                    if 'protocol' in rule_data:
-                        rule_data['protocol'] = Protocol(rule_data['protocol'])
-                    
-                    rule = FirewallRule(**rule_data)
-                    result = self.rule_engine.add_rule(rule)
-                    
-                    if isinstance(result, tuple):
-                        success, is_duplicate = result
-                        if is_duplicate:
-                            duplicates += 1
-                        elif success:
-                            imported += 1
-                        else:
-                            failed += 1
-                    else:
-                        if result:
-                            imported += 1
-                        else:
-                            failed += 1
-                
-                self._refresh_rule_list()
-                
-                message = f"Import Complete\n\n"
-                message += f"✅ Imported: {imported}\n"
-                if duplicates > 0:
-                    message += f"⚠️ Duplicates skipped: {duplicates}\n"
-                if failed > 0:
-                    message += f"❌ Failed: {failed}"
-                
-                messagebox.showinfo("Import Results", message)
-        except Exception as e:
-            messagebox.showerror("Error", f"Error importing rules: {e}")
+    
     
     def _export_rules(self):
         """Export rules to JSON file"""

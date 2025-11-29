@@ -9,6 +9,9 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
 from typing import Dict, List, Any, Optional, Union
+from datetime import datetime
+from enum import Enum
+import threading
 
 # Optional YAML import
 try:
@@ -16,18 +19,8 @@ try:
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
-from dataclasses import dataclass, asdict
-from datetime import datetime
-from enum import Enum
-import threading
 
 
-
-
-
-
-
-@dataclass
 class FirewallConfig:
     """Firewall configuration settings with validation"""
     
@@ -83,21 +76,45 @@ class FirewallConfig:
         except (ValueError, TypeError) as e:
             print(f"Warning: Invalid max_packets_per_second value: {value}, using 10000")
             self._max_packets_per_second = 10000
+    
+    def to_dict(self):
+        """Convert config to dictionary for JSON serialization"""
+        return {
+            'firewall_enabled': self.firewall_enabled,
+            'default_action': self.default_action,
+            'log_level': self.log_level,
+            'max_connections': self.max_connections,
+            'connection_timeout': self.connection_timeout,
+            'enable_stateful_inspection': self.enable_stateful_inspection,
+            'enable_intrusion_detection': self.enable_intrusion_detection,
+            'enable_dos_protection': self.enable_dos_protection,
+            'max_packets_per_second': self.max_packets_per_second,
+            'log_packets': self.log_packets,
+            'log_connections': self.log_connections,
+            'log_security_events': self.log_security_events,
+            'log_retention_days': self.log_retention_days,
+            'packet_buffer_size': self.packet_buffer_size,
+            'rule_evaluation_timeout': self.rule_evaluation_timeout,
+            'cleanup_interval': self.cleanup_interval,
+            'trusted_networks': self.trusted_networks,
+            'blocked_networks': self.blocked_networks,
+            'allowed_ports': self.allowed_ports,
+            'blocked_ports': self.blocked_ports,
+            'enable_demo_rules': self.enable_demo_rules
+        }
 
-
-# =============================================================================
-# UPDATED: ConfigurationManager with proper locking
-# =============================================================================
 
 class ConfigurationManager:
     """Manages firewall configuration with thread-safe updates"""
     
     def __init__(self, config_file: str = "firewall_config.json"):
-        import os
-        base_dir = os.path.dirname(__file__) if __file__ else '.'
+        base_dir = os.path.dirname(os.path.abspath(__file__)) if __file__ else '.'
         self.config_file = os.path.join(base_dir, config_file)
         self.config = FirewallConfig()
+        # Use re-entrant lock to avoid deadlock
         self.config_lock = threading.RLock()
+        
+        # Load configuration on startup
         self.load_configuration()
     
     def get_config(self) -> FirewallConfig:
@@ -119,117 +136,42 @@ class ConfigurationManager:
     
     def save_configuration(self) -> bool:
         """Save configuration to file"""
-        import json
         try:
             with self.config_lock:
-                config_dict = {
-                    'firewall_enabled': self.config.firewall_enabled,
-                    'default_action': self.config.default_action,
-                    'log_level': self.config.log_level,
-                    'enable_stateful_inspection': self.config.enable_stateful_inspection,
-                    'enable_intrusion_detection': self.config.enable_intrusion_detection,
-                    'enable_dos_protection': self.config.enable_dos_protection,
-                    'max_packets_per_second': self.config.max_packets_per_second,
-                    'trusted_networks': self.config.trusted_networks,
-                    'blocked_networks': self.config.blocked_networks,
-                }
+                config_dict = self.config.to_dict()
                 with open(self.config_file, 'w') as f:
                     json.dump(config_dict, f, indent=2)
                 return True
         except Exception as e:
-            print(f"Error saving configuration: {e}")
             return False
     
     def load_configuration(self) -> bool:
         """Load configuration from file"""
-        import json
-        import os
         try:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
                     config_data = json.load(f)
                 
                 with self.config_lock:
+                    # Update configuration attributes
                     for key, value in config_data.items():
                         if hasattr(self.config, key):
                             setattr(self.config, key, value)
                 
                 return True
             else:
+                # Create default configuration file
                 self.save_configuration()
                 return True
         except Exception as e:
-            print(f"Error loading configuration: {e}")
-            return False
-        
-class ConfigurationManager:
-    """Manages firewall configuration"""
-    
-    def __init__(self, config_file: str = "firewall_config.json"):
-        base_dir = os.path.dirname(__file__)
-        self.config_file = os.path.join(base_dir, config_file)
-        self.config = FirewallConfig()
-        # Use re-entrant lock to avoid deadlock when save is called from update
-        self.config_lock = threading.RLock()
-        
-        # Load configuration
-        self.load_configuration()
-    
-    def load_configuration(self) -> bool:
-        """Load configuration from file"""
-        try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
-                    config_data = json.load(f)
-                
-                # Update configuration
-                for key, value in config_data.items():
-                    if hasattr(self.config, key):
-                        setattr(self.config, key, value)
-                
-                return True
-            else:
-                # Create default configuration
-                self.save_configuration()
-                return True
-        except Exception as e:
-            print(f"Error loading configuration: {e}")
-            return False
-    
-    def save_configuration(self) -> bool:
-        """Save configuration to file"""
-        try:
-            with self.config_lock:
-                config_dict = asdict(self.config)
-                with open(self.config_file, 'w') as f:
-                    json.dump(config_dict, f, indent=2, default=str)
-                return True
-        except Exception as e:
-            print(f"Error saving configuration: {e}")
-            return False
-    
-    def get_config(self) -> FirewallConfig:
-        """Get current configuration"""
-        with self.config_lock:
-            return self.config
-    
-    def update_config(self, **kwargs) -> bool:
-        """Update configuration settings"""
-        try:
-            with self.config_lock:
-                for key, value in kwargs.items():
-                    if hasattr(self.config, key):
-                        setattr(self.config, key, value)
-                return self.save_configuration()
-        except Exception as e:
-            print(f"Error updating configuration: {e}")
             return False
     
     def reset_to_defaults(self) -> bool:
         """Reset configuration to defaults"""
         try:
-            self.config = FirewallConfig()
-            return self.save_configuration()
+            with self.config_lock:
+                self.config = FirewallConfig()
+                return self.save_configuration()
         except Exception as e:
             print(f"Error resetting configuration: {e}")
             return False
@@ -237,10 +179,11 @@ class ConfigurationManager:
     def export_configuration(self, filename: str) -> bool:
         """Export configuration to file"""
         try:
-            config_dict = asdict(self.config)
-            with open(filename, 'w') as f:
-                json.dump(config_dict, f, indent=2, default=str)
-            return True
+            with self.config_lock:
+                config_dict = self.config.to_dict()
+                with open(filename, 'w') as f:
+                    json.dump(config_dict, f, indent=2)
+                return True
         except Exception as e:
             print(f"Error exporting configuration: {e}")
             return False
@@ -253,9 +196,10 @@ class ConfigurationManager:
             
             # Validate configuration
             if self._validate_config(config_data):
-                for key, value in config_data.items():
-                    if hasattr(self.config, key):
-                        setattr(self.config, key, value)
+                with self.config_lock:
+                    for key, value in config_data.items():
+                        if hasattr(self.config, key):
+                            setattr(self.config, key, value)
                 return self.save_configuration()
             return False
         except Exception as e:
@@ -268,7 +212,6 @@ class ConfigurationManager:
         return all(field in config_data for field in required_fields)
 
 
-    
 class ConfigurationGUI:
     """GUI for configuration management"""
     
@@ -291,12 +234,11 @@ class ConfigurationGUI:
         self._create_security_tab()
         self._create_network_tab()
         
-
-        # Save/Reload controls
+        # Save/Apply controls
         controls = ttk.Frame(parent)
         controls.pack(fill=tk.X, padx=10, pady=8)
         ttk.Button(controls, text="Save Configuration", command=self._on_save).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls, text="Reload From File", command=self._on_reload).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls, text="Apply Live Config", command=self._on_apply_live).pack(side=tk.LEFT, padx=5)
     
     def _create_general_tab(self):
         """Create general configuration tab"""
@@ -304,7 +246,7 @@ class ConfigurationGUI:
         self.notebook.add(general_frame, text="General")
         
         # General settings
-        ttk.Label(general_frame, text="General Settings").pack(anchor=tk.W, padx=10, pady=5)
+        ttk.Label(general_frame, text="General Settings", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=5)
         
         # Firewall enabled
         self.firewall_enabled_var = tk.BooleanVar(value=self.config_manager.get_config().firewall_enabled)
@@ -314,13 +256,13 @@ class ConfigurationGUI:
         ttk.Label(general_frame, text="Default Action:").pack(anchor=tk.W, padx=20, pady=(10, 0))
         self.default_action_var = tk.StringVar(value=self.config_manager.get_config().default_action)
         ttk.Combobox(general_frame, textvariable=self.default_action_var, 
-                    values=["ALLOW", "DENY"]).pack(anchor=tk.W, padx=40)
+                    values=["ALLOW", "DENY"], state="readonly").pack(anchor=tk.W, padx=40)
         
         # Log level
         ttk.Label(general_frame, text="Log Level:").pack(anchor=tk.W, padx=20, pady=(10, 0))
         self.log_level_var = tk.StringVar(value=self.config_manager.get_config().log_level)
         ttk.Combobox(general_frame, textvariable=self.log_level_var,
-                    values=[ "INFO", "WARNING", "ERROR", "CRITICAL"]).pack(anchor=tk.W, padx=40)
+                    values=["INFO", "WARNING", "ERROR", "CRITICAL"], state="readonly").pack(anchor=tk.W, padx=40)
     
     def _create_security_tab(self):
         """Create security configuration tab"""
@@ -328,7 +270,7 @@ class ConfigurationGUI:
         self.notebook.add(security_frame, text="Security")
         
         # Security settings
-        ttk.Label(security_frame, text="Security Settings").pack(anchor=tk.W, padx=10, pady=5)
+        ttk.Label(security_frame, text="Security Settings", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=5)
         
         # Stateful inspection
         self.stateful_var = tk.BooleanVar(value=self.config_manager.get_config().enable_stateful_inspection)
@@ -351,29 +293,57 @@ class ConfigurationGUI:
         self.notebook.add(network_frame, text="Network")
         
         # Network settings
-        ttk.Label(network_frame, text="Network Settings").pack(anchor=tk.W, padx=10, pady=5)
+        ttk.Label(network_frame, text="Network Settings", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=5)
         
         # Trusted networks
-        ttk.Label(network_frame, text="Trusted Networks:").pack(anchor=tk.W, padx=20, pady=(10, 0))
+        ttk.Label(network_frame, text="Trusted Networks (one per line):").pack(anchor=tk.W, padx=20, pady=(10, 0))
         self.trusted_networks_text = tk.Text(network_frame, height=3, width=50)
         self.trusted_networks_text.pack(anchor=tk.W, padx=40)
         self.trusted_networks_text.insert(tk.END, '\n'.join(self.config_manager.get_config().trusted_networks))
         
         # Blocked networks
-        ttk.Label(network_frame, text="Blocked Networks:").pack(anchor=tk.W, padx=20, pady=(10, 0))
+        ttk.Label(network_frame, text="Blocked Networks (one per line):").pack(anchor=tk.W, padx=20, pady=(10, 0))
         self.blocked_networks_text = tk.Text(network_frame, height=3, width=50)
         self.blocked_networks_text.pack(anchor=tk.W, padx=40)
         self.blocked_networks_text.insert(tk.END, '\n'.join(self.config_manager.get_config().blocked_networks))
     
-    
     def save_configuration(self):
-        """Save all configuration changes"""
+        """Save all configuration changes to file only"""
         try:
             # Get values safely
             trusted_networks = [line.strip() for line in self.trusted_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
             blocked_networks = [line.strip() for line in self.blocked_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
             
-            # Update configuration
+            # Update configuration object
+            cfg = self.config_manager.get_config()
+            cfg.firewall_enabled = self.firewall_enabled_var.get()
+            cfg.default_action = self.default_action_var.get()
+            cfg.log_level = self.log_level_var.get()
+            cfg.enable_stateful_inspection = self.stateful_var.get()
+            cfg.enable_intrusion_detection = self.intrusion_var.get()
+            cfg.enable_dos_protection = self.dos_var.get()
+            cfg.trusted_networks = trusted_networks
+            cfg.blocked_networks = blocked_networks
+            
+            # Save to file
+            success = self.config_manager.save_configuration()
+            
+            if success:
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            return False
+    
+    def apply_live_configuration(self):
+        """Apply configuration changes to firewall immediately"""
+        try:
+            # Get values safely
+            trusted_networks = [line.strip() for line in self.trusted_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
+            blocked_networks = [line.strip() for line in self.blocked_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
+            
+            # Update configuration and save
             success = self.config_manager.update_config(
                 firewall_enabled=self.firewall_enabled_var.get(),
                 default_action=self.default_action_var.get(),
@@ -386,21 +356,19 @@ class ConfigurationGUI:
             )
             
             if success:
-                print(f"Configuration saved to: {self.config_manager.config_file}")
+                # Call the callback to apply changes to firewall
+                if self.on_save_callback:
+                    self.on_save_callback()
                 return True
             else:
-                print("Failed to save configuration")
                 return False
                 
         except Exception as e:
-            print(f"Error saving configuration: {e}")
-            import traceback
-            traceback.print_exc()
             return False
 
     def _on_save(self):
-        """Handle Save Configuration button"""
-        # Disable button to prevent multiple clicks
+        """Handle Save Configuration button - saves to file only"""
+        # Find and disable the save button
         save_button = None
         for child in self.parent.winfo_children():
             if isinstance(child, ttk.Frame):
@@ -408,6 +376,7 @@ class ConfigurationGUI:
                     if isinstance(subchild, ttk.Button) and subchild.cget('text') == 'Save Configuration':
                         save_button = subchild
                         break
+        
         if save_button:
             save_button.config(state='disabled', text='Saving...')
         
@@ -415,10 +384,8 @@ class ConfigurationGUI:
         def save_worker():
             try:
                 success = self.save_configuration()
-                
                 # Schedule GUI update on main thread
                 self.parent.after(0, lambda: self._on_save_complete(success, save_button))
-                
             except Exception as e:
                 # Schedule error display on main thread
                 self.parent.after(0, lambda: self._on_save_error(str(e), save_button))
@@ -431,14 +398,9 @@ class ConfigurationGUI:
         """Handle save completion on main thread"""
         try:
             if success:
-                messagebox.showinfo("Configuration", "Configuration saved successfully.\n\nRestart the firewall to apply default action changes.")
-                if self.on_save_callback:
-                    try:
-                        self.on_save_callback()
-                    except Exception as callback_error:
-                        messagebox.showwarning("Configuration", f"Config applied but live reload failed:\n{callback_error}")
+                messagebox.showinfo("Configuration Saved", "Configuration saved to file successfully!\n\nClick 'Apply Live Config' to apply changes to the firewall.")
             else:
-                messagebox.showerror("Configuration", "Failed to save configuration.\nCheck console for error details.")
+                messagebox.showerror("Configuration", "Failed to save configuration to file.")
         finally:
             # Re-enable button
             if save_button:
@@ -453,21 +415,51 @@ class ConfigurationGUI:
             if save_button:
                 save_button.config(state='normal', text='Save Configuration')
 
-    def _on_reload(self):
-        """Reload configuration from file and refresh fields"""
+    def _on_apply_live(self):
+        """Handle Apply Live Config button - applies changes to firewall immediately"""
+        # Find and disable the apply button
+        apply_button = None
+        for child in self.parent.winfo_children():
+            if isinstance(child, ttk.Frame):
+                for subchild in child.winfo_children():
+                    if isinstance(subchild, ttk.Button) and subchild.cget('text') == 'Apply Live Config':
+                        apply_button = subchild
+                        break
+        
+        if apply_button:
+            apply_button.config(state='disabled', text='Applying...')
+        
+        # Run apply in separate thread
+        def apply_worker():
+            try:
+                success = self.apply_live_configuration()
+                # Schedule GUI update on main thread
+                self.parent.after(0, lambda: self._on_apply_complete(success, apply_button))
+            except Exception as e:
+                # Schedule error display on main thread
+                self.parent.after(0, lambda: self._on_apply_error(str(e), apply_button))
+        
+        # Start apply thread
+        apply_thread = threading.Thread(target=apply_worker, daemon=True)
+        apply_thread.start()
+    
+    def _on_apply_complete(self, success, apply_button):
+        """Handle apply completion on main thread"""
         try:
-            if self.config_manager.load_configuration():
-                cfg = self.config_manager.get_config()
-                self.firewall_enabled_var.set(cfg.firewall_enabled)
-                self.default_action_var.set(cfg.default_action)
-                self.log_level_var.set(cfg.log_level)
-                self.stateful_var.set(cfg.enable_stateful_inspection)
-                self.intrusion_var.set(cfg.enable_intrusion_detection)
-                self.dos_var.set(cfg.enable_dos_protection)
-                self.trusted_networks_text.delete('1.0', tk.END)
-                self.trusted_networks_text.insert(tk.END, '\n'.join(cfg.trusted_networks))
-                self.blocked_networks_text.delete('1.0', tk.END)
-                self.blocked_networks_text.insert(tk.END, '\n'.join(cfg.blocked_networks))
-                messagebox.showinfo("Configuration", "Configuration reloaded from file.")
-        except Exception as e:
-            print(f"Error reloading configuration: {e}")
+            if success:
+                messagebox.showinfo("Configuration Applied", "Configuration applied to firewall successfully!\n\nChanges are now active and saved to file.")
+            else:
+                messagebox.showerror("Configuration", "Failed to apply configuration to firewall.")
+        finally:
+            # Re-enable button
+            if apply_button:
+                apply_button.config(state='normal', text='Apply Live Config')
+    
+    def _on_apply_error(self, error_msg, apply_button):
+        """Handle apply error on main thread"""
+        try:
+            messagebox.showerror("Configuration Error", f"Error applying configuration:\n{error_msg}")
+        finally:
+            # Re-enable button
+            if apply_button:
+                apply_button.config(state='normal', text='Apply Live Config')

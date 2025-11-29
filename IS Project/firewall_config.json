@@ -1,1 +1,27 @@
-{}
+{
+  "firewall_enabled": true,
+  "default_action": "DENY",
+  "log_level": "INFO",
+  "max_connections": 1000,
+  "connection_timeout": 300,
+  "enable_stateful_inspection": true,
+  "enable_intrusion_detection": true,
+  "enable_dos_protection": true,
+  "max_packets_per_second": 10000,
+  "log_packets": true,
+  "log_connections": true,
+  "log_security_events": true,
+  "log_retention_days": 30,
+  "packet_buffer_size": 1000,
+  "rule_evaluation_timeout": 0.1,
+  "cleanup_interval": 60,
+  "trusted_networks": [],
+  "blocked_networks": [],
+  "allowed_ports": [
+    80,
+    443,
+    53
+  ],
+  "blocked_ports": [],
+  "enable_demo_rules": false
+}

@@ -58,6 +58,7 @@ class RuleEngine:
 
     def __init__(self, log_callback=None, rules_file="firewall_rules.json"):
         self.log_callback = log_callback
+        self.rules_changed_callback = None
         self.rules: List[FirewallRule] = []
         self.rule_counter = 0
         self.default_action = RuleAction.DENY
@@ -65,6 +66,10 @@ class RuleEngine:
         
         # Only load from file, don't create defaults
         self.load_rules_from_file()
+
+    def set_rules_changed_callback(self, callback):
+        """Set a function to be called whenever rules are added, updated, or deleted."""
+        self.rules_changed_callback = callback
     
     def save_rules_to_file(self) -> bool:
         """Save all rules to a JSON file for persistence"""
@@ -190,6 +195,10 @@ class RuleEngine:
 
                 if self.log_callback:
                     self.log_callback(f"✅ Added new rule: {rule.name} ({rule.action.value})")
+                if self.rules_changed_callback:  # NEW
+                    self.rules_changed_callback()
+
+
                 return True, False  # Success, not duplicate
 
             return False, False  # Validation failed
@@ -205,6 +214,8 @@ class RuleEngine:
                 removed_rule = self.rules.pop(i)
                 if self.log_callback:
                     self.log_callback(f"Removed rule: {removed_rule.name}")
+                if self.rules_changed_callback:  # NEW
+                    self.rules_changed_callback()
                 return True
         return False
     
@@ -216,6 +227,8 @@ class RuleEngine:
                         setattr(rule, key, value)
                 if self.log_callback:
                     self.log_callback(f"Updated rule: {rule.name}")
+                if self.rules_changed_callback:  # NEW
+                    self.rules_changed_callback()
                 return True
         return False
     
