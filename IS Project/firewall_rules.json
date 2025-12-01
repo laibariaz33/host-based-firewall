@@ -1,5 +1,21 @@
 [
   {
+    "id": "rule_4",
+    "name": "allow google dns",
+    "action": "DENY",
+    "direction": "OUTBOUND",
+    "protocol": "UDP",
+    "src_ip": null,
+    "dst_ip": "8.8.8.8",
+    "src_port": null,
+    "dst_port": 53,
+    "enabled": true,
+    "priority": 1,
+    "description": "Allow DNS to google",
+    "hit_count": 0,
+    "created_at": "2025-12-02T01:56:23.377180"
+  },
+  {
     "id": "block_rdp_external",
     "name": "Block RDP from Internet",
     "action": "DENY",
@@ -60,7 +76,7 @@
     "enabled": true,
     "priority": 10,
     "description": "Allow all traffic within local network (192.168.x.x)",
-    "hit_count": 73,
+    "hit_count": 510,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -140,7 +156,7 @@
     "enabled": true,
     "priority": 30,
     "description": "Allow outbound HTTP web browsing (unencrypted)",
-    "hit_count": 2,
+    "hit_count": 138,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -156,7 +172,7 @@
     "enabled": true,
     "priority": 30,
     "description": "Allow incoming HTTP responses",
-    "hit_count": 2,
+    "hit_count": 125,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -172,7 +188,7 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow outbound HTTPS secure web browsing",
-    "hit_count": 306,
+    "hit_count": 2651,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -188,7 +204,7 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow incoming HTTPS responses",
-    "hit_count": 343,
+    "hit_count": 496,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -316,7 +332,7 @@
     "enabled": true,
     "priority": 60,
     "description": "Recommended: Allow ping for network diagnostics",
-    "hit_count": 0,
+    "hit_count": 32,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -329,10 +345,10 @@
     "dst_ip": "142.250.0.0/15",
     "src_port": null,
     "dst_port": null,
-    "enabled": true,
+    "enabled": false,
     "priority": 70,
     "description": "Optional: Block YouTube (may not work with VPN/DNS changes)",
-    "hit_count": 0,
+    "hit_count": 420,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -348,7 +364,7 @@
     "enabled": true,
     "priority": 90,
     "description": "Log traffic not matching other rules for analysis",
-    "hit_count": 126,
+    "hit_count": 2479,
     "created_at": "2025-11-27T00:00:00"
   },
   {

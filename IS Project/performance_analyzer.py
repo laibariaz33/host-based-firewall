@@ -24,7 +24,10 @@ class PerformanceAnalyzer:
         self.disk_history = deque(maxlen=60)
 
         # Network and disk previous readings
-        self.prev_io = self.firewall.io_counters()
+        try:
+            self.prev_io = self.firewall.io_counters()
+        except:
+            self.prev_io = None
         self.last_time = time.time()
 
         # Main frame
@@ -33,9 +36,10 @@ class PerformanceAnalyzer:
         # Create UI
         self._create_gui()
 
-        # Update loop
+        # Update loop control
         self.running = True
-        threading.Thread(target=self._update_loop, daemon=True).start()
+        self.update_thread = threading.Thread(target=self._update_loop, daemon=True)
+        self.update_thread.start()
 
     # ---------------- GUI ----------------
 
@@ -75,9 +79,17 @@ class PerformanceAnalyzer:
             cpu = self.firewall.cpu_percent(interval=0.1)
             mem = self.firewall.memory_percent()
 
+            # Handle IO counters safely
+            if self.prev_io is None:
+                self.prev_io = self.firewall.io_counters()
+                return cpu, mem, 0, 0, 0
+
             now = self.firewall.io_counters()
             current_time = time.time()
             dt = current_time - self.last_time
+
+            if dt <= 0:
+                dt = 1  # Prevent division by zero
 
             # Bytes per second (network + disk combined)
             read_sec = (now.read_bytes - self.prev_io.read_bytes) / dt
@@ -90,58 +102,114 @@ class PerformanceAnalyzer:
 
             return cpu, mem, read_sec, write_sec, net_sec
 
-        except Exception:
+        except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+            return 0, 0, 0, 0, 0
+        except Exception as e:
+            print(f"Stats error: {e}")
             return 0, 0, 0, 0, 0
 
     # ---------------- Graph Drawing ----------------
 
     def _draw_graph(self, canvas, data, color):
-        canvas.delete("all")
-        if len(data) < 2:
-            return
+        try:
+            if not self.running:
+                return
+                
+            canvas.delete("all")
+            if len(data) < 2:
+                return
 
-        w = canvas.winfo_width()
-        h = canvas.winfo_height()
+            w = canvas.winfo_width()
+            h = canvas.winfo_height()
 
-        max_val = max(data) if max(data) > 0 else 1
+            if w <= 1 or h <= 1:
+                return
 
-        points = []
-        for i, v in enumerate(data):
-            x = (i / len(data)) * w
-            y = h - (v / max_val) * h
-            points.append((x, y))
+            max_val = max(data) if max(data) > 0 else 1
 
-        # Draw line
-        for i in range(len(points) - 1):
-            canvas.create_line(points[i][0], points[i][1],
-                               points[i+1][0], points[i+1][1],
-                               fill=color, width=2)
+            points = []
+            for i, v in enumerate(data):
+                x = (i / len(data)) * w
+                y = h - (v / max_val) * h
+                points.append((x, y))
+
+            # Draw line
+            for i in range(len(points) - 1):
+                canvas.create_line(points[i][0], points[i][1],
+                                   points[i+1][0], points[i+1][1],
+                                   fill=color, width=2)
+        except Exception as e:
+            # Canvas might be destroyed
+            if self.running:
+                print(f"Graph draw error: {e}")
 
     # ---------------- Update Loop ----------------
 
     def _update_loop(self):
+        """Background thread to update metrics"""
         while self.running:
-            cpu, mem, read_sec, write_sec, net_sec = self._get_firewall_stats()
+            try:
+                # Check if we should still be running
+                if not self.running:
+                    break
 
-            # Update labels
+                # Get stats
+                cpu, mem, read_sec, write_sec, net_sec = self._get_firewall_stats()
+
+                # Update labels safely using after() to ensure thread-safety
+                try:
+                    if self.running and hasattr(self, 'cpu_label'):
+                        self.frame.after(0, lambda: self._update_labels(cpu, mem, net_sec, read_sec, write_sec))
+                except:
+                    break
+
+                # Update history for graphs
+                self.cpu_history.append(cpu)
+                self.memory_history.append(mem)
+                self.net_history.append(net_sec / 1024)
+                self.disk_history.append((read_sec + write_sec) / 1024)
+
+                # Draw graphs using after() for thread-safety
+                try:
+                    if self.running:
+                        self.frame.after(0, self._update_graphs)
+                except:
+                    break
+
+                time.sleep(1)
+
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                break
+            except Exception as e:
+                if self.running:
+                    print(f"Performance analyzer error: {e}")
+                break
+
+        print("Performance analyzer update loop stopped")
+
+    def _update_labels(self, cpu, mem, net_sec, read_sec, write_sec):
+        """Update labels in main thread"""
+        try:
+            if not self.running:
+                return
             self.cpu_label.config(text=f"CPU: {cpu:.1f}%")
             self.mem_label.config(text=f"Memory: {mem:.1f}%")
             self.net_label.config(text=f"Network: {(net_sec/1024):.1f} KB/s")
             self.disk_label.config(text=f"Disk: {(read_sec+write_sec)/1024:.1f} KB/s")
+        except:
+            self.running = False
 
-            # Update history for graphs
-            self.cpu_history.append(cpu)
-            self.memory_history.append(mem)
-            self.net_history.append(net_sec / 1024)
-            self.disk_history.append((read_sec + write_sec) / 1024)
-
-            # Draw graphs
+    def _update_graphs(self):
+        """Update graphs in main thread"""
+        try:
+            if not self.running:
+                return
             self._draw_graph(self.cpu_canvas, self.cpu_history, "#2196F3")
             self._draw_graph(self.mem_canvas, self.memory_history, "#FF9800")
             self._draw_graph(self.net_canvas, self.net_history, "#00BCD4")
             self._draw_graph(self.disk_canvas, self.disk_history, "#9C27B0")
-
-            time.sleep(1)
+        except:
+            self.running = False
 
     # ---------------- Public ----------------
 
@@ -149,4 +217,14 @@ class PerformanceAnalyzer:
         return self.frame
 
     def stop(self):
+        """Stop the performance analyzer and cleanup"""
+        print("Stopping performance analyzer...")
         self.running = False
+        
+        # Wait for update thread to finish
+        if hasattr(self, 'update_thread') and self.update_thread and self.update_thread.is_alive():
+            try:
+                self.update_thread.join(timeout=2.0)
+                print("Performance analyzer thread stopped")
+            except:
+                print("Performance analyzer thread timeout")

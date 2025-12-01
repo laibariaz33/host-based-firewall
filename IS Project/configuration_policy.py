@@ -1,5 +1,5 @@
 """
-Configuration & Policy Module
+Configuration & Policy Module - FIXED VERSION
 Configuration management and policy enforcement system
 """
 
@@ -347,23 +347,6 @@ class ConfigurationGUI:
         network_frame = ttk.Frame(self.notebook)
         self.notebook.add(network_frame, text="Network")
         
-<<<<<<< HEAD
-        # Network settings
-        ttk.Label(network_frame, text="Network Settings", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=10, pady=5)
-        
-        # Trusted networks
-        ttk.Label(network_frame, text="Trusted Networks (one per line):").pack(anchor=tk.W, padx=20, pady=(10, 0))
-        self.trusted_networks_text = tk.Text(network_frame, height=3, width=50)
-        self.trusted_networks_text.pack(anchor=tk.W, padx=40)
-        self.trusted_networks_text.insert(tk.END, '\n'.join(self.config_manager.get_config().trusted_networks))
-        
-        # Blocked networks
-        ttk.Label(network_frame, text="Blocked Networks (one per line):").pack(anchor=tk.W, padx=20, pady=(10, 0))
-        self.blocked_networks_text = tk.Text(network_frame, height=3, width=50)
-        self.blocked_networks_text.pack(anchor=tk.W, padx=40)
-        self.blocked_networks_text.insert(tk.END, '\n'.join(self.config_manager.get_config().blocked_networks))
-    
-=======
         # Instructions
         instructions = ttk.LabelFrame(network_frame, text="📖 Instructions")
         instructions.pack(fill=tk.X, padx=10, pady=5)
@@ -425,22 +408,24 @@ class ConfigurationGUI:
         self.validation_label = ttk.Label(validate_btn_frame, text="", foreground="blue")
         self.validation_label.pack(side=tk.LEFT, padx=10)
 
->>>>>>> 85e0e8911306e4ca72b6d358de5d7b08ec72394b
     def save_configuration(self):
-        """Save all configuration changes to file only"""
+        """Save all configuration changes to file only - FIXED VERSION"""
         try:
             # Get values safely
             trusted_networks = [line.strip() for line in self.trusted_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
             blocked_networks = [line.strip() for line in self.blocked_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
             
-            # Update configuration object
+            # Update configuration object - INCLUDING SECURITY SETTINGS
             cfg = self.config_manager.get_config()
             cfg.firewall_enabled = self.firewall_enabled_var.get()
             cfg.default_action = self.default_action_var.get()
             cfg.log_level = self.log_level_var.get()
+            
+            # ✅ FIX: Save security settings
             cfg.enable_stateful_inspection = self.stateful_var.get()
             cfg.enable_intrusion_detection = self.intrusion_var.get()
             cfg.enable_dos_protection = self.dos_var.get()
+            
             cfg.trusted_networks = trusted_networks
             cfg.blocked_networks = blocked_networks
             
@@ -456,13 +441,13 @@ class ConfigurationGUI:
             return False
     
     def apply_live_configuration(self):
-        """Apply configuration changes to firewall immediately"""
+        """Apply configuration changes to firewall immediately - FIXED VERSION"""
         try:
             # Get values safely
             trusted_networks = [line.strip() for line in self.trusted_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
             blocked_networks = [line.strip() for line in self.blocked_networks_text.get('1.0', tk.END).strip().split('\n') if line.strip()]
             
-            # Update configuration and save
+            # ✅ FIX: Update configuration with ALL settings including security
             success = self.config_manager.update_config(
                 firewall_enabled=self.firewall_enabled_var.get(),
                 default_action=self.default_action_var.get(),

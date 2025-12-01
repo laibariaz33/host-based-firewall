@@ -49,6 +49,64 @@ class SecurityEnhancer:
         }
         self.suspicious_activity = defaultdict(set)  # {ip_port: set of ports}
         self.last_ids_cleanup = datetime.now()
+    
+    def check_network_policy(self, packet_info) -> tuple:
+        """
+        Check if packet should be blocked/allowed based on network lists
+        Returns: (should_process, action, reason)
+            - should_process: False means skip further processing
+            - action: 'BLOCK' or 'ALLOW'
+            - reason: explanation string
+        """
+        try:
+            config = self.config_manager.get_config()
+            src_ip = packet_info.src_ip
+            dst_ip = packet_info.dst_ip
+            
+            # Check if source IP is in blocked networks (HIGHEST PRIORITY)
+            for blocked_network in config.blocked_networks:
+                if self._ip_in_network(src_ip, blocked_network):
+                    return False, 'BLOCK', f"Blocked Network: {blocked_network}"
+                if self._ip_in_network(dst_ip, blocked_network):
+                    return False, 'BLOCK', f"Blocked Network: {blocked_network}"
+            
+            # Check if source IP is in trusted networks (allow and skip further checks)
+            for trusted_network in config.trusted_networks:
+                if self._ip_in_network(src_ip, trusted_network):
+                    return False, 'ALLOW', f"Trusted Network: {trusted_network}"
+                if self._ip_in_network(dst_ip, trusted_network):
+                    return False, 'ALLOW', f"Trusted Network: {trusted_network}"
+            
+            # No network policy match - continue normal processing
+            return True, '', ''
+        except Exception as e:
+            self.log_callback(f"⚠️ Network policy error: {e}")
+            return True, '', ''  # Continue processing on error
+    
+    def _ip_in_network(self, ip: str, network: str) -> bool:
+        """
+        Check if IP is in network (supports single IP or CIDR notation)
+        Examples: 
+            - "192.168.1.100" matches "192.168.1.100"
+            - "192.168.1.100" matches "192.168.1.0/24"
+            - "10.0.0.5" matches "10.0.0.0/8"
+        """
+        try:
+            import ipaddress
+            
+            # Handle single IP
+            if '/' not in network:
+                return ip == network
+            
+            # Handle CIDR notation
+            ip_obj = ipaddress.ip_address(ip)
+            network_obj = ipaddress.ip_network(network, strict=False)
+            return ip_obj in network_obj
+        except ValueError:
+            return False
+        except Exception as e:
+            self.log_callback(f"⚠️ IP check error for {ip} in {network}: {e}")
+            return False
         
     def cleanup_dos_tracking(self):
         """Periodically cleanup old tracking data"""
@@ -72,59 +130,6 @@ class SecurityEnhancer:
         
         self.last_cleanup = now
 
-    def check_network_policy(self, packet_info) -> tuple[bool, str, str]:
-        """
-        Check if packet should be blocked/allowed based on network lists
-        Returns: (should_process, action, reason)
-            - should_process: False means skip further processing
-            - action: 'BLOCK' or 'ALLOW'
-            - reason: explanation string
-        """
-        config = self.config_manager.get_config()
-        src_ip = packet_info.src_ip
-        dst_ip = packet_info.dst_ip
-        
-        # Check if source IP is in blocked networks
-        for blocked_network in config.blocked_networks:
-            if self._ip_in_network(src_ip, blocked_network):
-                return False, 'BLOCK', f"Source IP {src_ip} in blocked network {blocked_network}"
-            if self._ip_in_network(dst_ip, blocked_network):
-                return False, 'BLOCK', f"Destination IP {dst_ip} in blocked network {blocked_network}"
-        
-        # Check if source IP is in trusted networks (allow and skip further checks)
-        for trusted_network in config.trusted_networks:
-            if self._ip_in_network(src_ip, trusted_network):
-                return False, 'ALLOW', f"Source IP {src_ip} in trusted network {trusted_network}"
-            if self._ip_in_network(dst_ip, trusted_network):
-                return False, 'ALLOW', f"Destination IP {dst_ip} in trusted network {trusted_network}"
-        
-        # No network policy match - continue normal processing
-        return True, '', ''
-
-    def _ip_in_network(self, ip: str, network: str) -> bool:
-        """
-        Check if IP is in network (supports single IP or CIDR notation)
-        Examples: 
-            - "192.168.1.100" matches "192.168.1.100"
-            - "192.168.1.100" matches "192.168.1.0/24"
-            - "10.0.0.5" matches "10.0.0.0/8"
-        """
-        try:
-            # Handle single IP
-            if '/' not in network:
-                return ip == network
-            
-            # Handle CIDR notation
-            import ipaddress
-            ip_obj = ipaddress.ip_address(ip)
-            network_obj = ipaddress.ip_network(network, strict=False)
-            return ip_obj in network_obj
-        except Exception as e:
-            self.log_callback(f"⚠️ Network check error for {ip} in {network}: {e}")
-            return False
-
-
-        
     def cleanup_ids_tracking(self):
         """Cleanup old IDS tracking data (every 5 minutes)"""
         now = datetime.now()
@@ -137,17 +142,13 @@ class SecurityEnhancer:
         
         self.last_ids_cleanup = now
     
-    def check_dos_protection(self, packet_info) -> tuple[bool, str]:
+    def check_dos_protection(self, packet_info) -> tuple:
         """
         Check if packet should be blocked due to DoS protection
         Returns: (should_block, reason)
-        
-        FIXED: Now properly reads current config each time
         """
-        # READ CONFIG FRESH EACH TIME (FIX #1)
         config = self.config_manager.get_config()
         
-        # Feature disabled check (FIX #2: Always check current state)
         if not config.enable_dos_protection:
             return False, ""
         
@@ -160,7 +161,6 @@ class SecurityEnhancer:
                 if now < self.blocked_ips[src_ip]:
                     return True, f"DoS Protection (Blocked until {self.blocked_ips[src_ip].strftime('%H:%M:%S')})"
                 else:
-                    # Block expired
                     del self.blocked_ips[src_ip]
             
             # Track this packet
@@ -172,53 +172,42 @@ class SecurityEnhancer:
             
             # Calculate packets per second
             packets_per_second = len(self.packet_rates[src_ip])
-            
-            # FIX #3: Validate threshold before using
-            threshold = max(1, config.max_packets_per_second)  # Minimum 1 pkt/s
+            threshold = max(1, config.max_packets_per_second)
             
             # Check against threshold
             if packets_per_second > threshold:
-                # Block this IP for 60 seconds
                 self.blocked_ips[src_ip] = now + timedelta(seconds=60)
                 self.log_callback(
                     f"🚨 DoS DETECTED: {src_ip} ({packets_per_second} pkt/s > {threshold} limit)"
                 )
                 return True, f"DoS Protection ({packets_per_second} pkt/s exceeds limit)"
         
-        # Periodic cleanup
         self.cleanup_dos_tracking()
-        
         return False, ""
     
-    def check_intrusion_detection(self, packet_info) -> tuple[bool, str]:
+    def check_intrusion_detection(self, packet_info) -> tuple:
         """
         Check if packet matches intrusion signatures
         Returns: (should_alert, reason)
-        
-        FIXED: Now properly reads current config each time
         """
-        # READ CONFIG FRESH EACH TIME (FIX #1)
         config = self.config_manager.get_config()
         
-        # Feature disabled check (FIX #2: Always check current state)
         if not config.enable_intrusion_detection:
             return False, ""
         
         src_ip = packet_info.src_ip
         
         with self.config_lock:
-            # Check for port scanning (accessing many different ports)
+            # Check for port scanning
             if hasattr(packet_info, 'dst_port') and packet_info.dst_port:
                 key = f"{src_ip}_ports"
                 
-                # Initialize set if needed
                 if key not in self.suspicious_activity:
                     self.suspicious_activity[key] = set()
                 
                 self.suspicious_activity[key].add(packet_info.dst_port)
-                
-                # FIX #4: Use configurable threshold from attack_signatures
                 threshold = self.attack_signatures['port_scan']['threshold']
+                
                 if len(self.suspicious_activity[key]) > threshold:
                     self.log_callback(
                         f"🚨 PORT SCAN DETECTED: {src_ip} scanned "
@@ -226,7 +215,7 @@ class SecurityEnhancer:
                     )
                     return True, f"Intrusion Detection (Port Scan)"
         
-        # Check payload for attack patterns (if available)
+        # Check payload for attack patterns
         if hasattr(packet_info, 'payload') and packet_info.payload:
             payload_str = str(packet_info.payload)
             
@@ -248,21 +237,16 @@ class SecurityEnhancer:
                 self.log_callback(f"🚨 XSS ATTEMPT: {src_ip}")
                 return True, f"Intrusion Detection (XSS)"
         
-        # Periodic cleanup
         self.cleanup_ids_tracking()
-        
         return False, ""
     
     def should_apply_stateful_inspection(self) -> bool:
-        """
-        Check if stateful inspection should be applied
-        FIXED: Always read fresh config
-        """
+        """Check if stateful inspection should be applied"""
         config = self.config_manager.get_config()
         return config.enable_stateful_inspection
     
     def reset_dos_blocks(self):
-        """Clear all DoS blocks (for testing/admin)"""
+        """Clear all DoS blocks"""
         with self.config_lock:
             cleared = len(self.blocked_ips)
             self.blocked_ips.clear()
@@ -271,7 +255,7 @@ class SecurityEnhancer:
         return cleared
     
     def reset_ids_tracking(self):
-        """Clear all IDS tracking (for testing/admin)"""
+        """Clear all IDS tracking"""
         with self.config_lock:
             cleared = len(self.suspicious_activity)
             self.suspicious_activity.clear()
@@ -292,7 +276,6 @@ class SecurityEnhancer:
                     'max_packets_per_second': self.config_manager.get_config().max_packets_per_second
                 }
             }
-
 
 class EnhancedFirewall:
     def __init__(self, log_callback):
@@ -540,17 +523,17 @@ class EnhancedFirewall:
             return False
 
     def process_packet(self, packet_info: PacketInfo) -> tuple[bool, dict]:
-        '''Process a packet through rules, stateful inspection, and policy'''
+        """Process a packet through rules, stateful inspection, and policy"""
         packet_counted = False
         try:
             self.stats['packets_processed'] += 1
             packet_counted = True
 
-            # ====== NEW: Network Policy Check (HIGHEST PRIORITY) ======
+            # ====== Network Policy Check (HIGHEST PRIORITY) ======
             should_continue, net_action, net_reason = self.security_enhancer.check_network_policy(packet_info)
             
             if not should_continue:
-                # Network policy made a decision - apply it
+                # Network policy made a decision - apply it immediately
                 if net_action == 'BLOCK':
                     self.stats['packets_blocked'] += 1
                     self.logger.log_packet_blocked(
@@ -619,7 +602,7 @@ class EnhancedFirewall:
 
             # Prepare match info
             match_info = {
-                'rule_name': getattr(matching_rule, 'name', None),
+                'rule_name': getattr(matching_rule, 'name', None) or 'Default Policy',
                 'rule_id': getattr(matching_rule, 'id', None),
                 'default_action': self.rule_engine.default_action.value if decision_source == 'default' else None,
                 'connection_state': connection_state.value if connection_state else None,
@@ -649,21 +632,16 @@ class EnhancedFirewall:
 
         except Exception as e:
             self.log_callback(f"❌ Processing error: {e}")
+            import traceback
+            traceback.print_exc()  # Print full error for debugging
+            
             if packet_counted:
                 self.stats['packets_blocked'] += 1
             else:
                 self.stats['packets_processed'] += 1
                 self.stats['packets_blocked'] += 1
-            try:
-                self.logger.log_packet_blocked(
-                    getattr(packet_info, 'src_ip', 'unknown'),
-                    getattr(packet_info, 'dst_ip', 'unknown'),
-                    getattr(packet_info, 'protocol', 'unknown'),
-                    reason="Processing Error"
-                )
-            except Exception:
-                pass
-            return False, {}
+            
+            return False, {'rule_name': 'Error', 'decision_source': 'error'}
 
 
 
