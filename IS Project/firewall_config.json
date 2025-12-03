@@ -5,9 +5,9 @@
   "max_connections": 1000,
   "connection_timeout": 300,
   "enable_stateful_inspection": true,
-  "enable_intrusion_detection": false,
+  "enable_intrusion_detection": true,
   "enable_dos_protection": false,
-  "max_packets_per_second": 10000,
+  "max_packets_per_second": 50,
   "log_packets": true,
   "log_connections": true,
   "log_security_events": true,
@@ -18,10 +18,7 @@
   "trusted_networks": [
     "1.1.1.1"
   ],
-  "blocked_networks": [
-    "216.58.192.0/19",
-    "172.217.0.0/16"
-  ],
+  "blocked_networks": [],
   "allowed_ports": [
     80,
     443,

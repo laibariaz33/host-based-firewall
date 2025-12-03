@@ -1,5 +1,5 @@
 """
-Stateful Inspection Module
+Stateful Inspection Module - FIXED VERSION
 Track connection states and perform stateful packet inspection
 """
 
@@ -63,12 +63,57 @@ class StatefulInspector:
         self.running = False
         self.cleanup_thread = None
         self.last_cleanup_log = datetime.now()
+        self.local_ips = self._get_local_ips()
         
-        # Start cleanup thread
-        self._start_cleanup_thread()
+        # Track NEW connections to avoid duplicate logging
+        self.logged_new_connections = set()
+        
+    def _get_local_ips(self) -> set:
+        """Get local machine IPs to determine direction"""
+        try:
+            import socket
+            import psutil
+            
+            local_ips = set()
+            
+            # Get hostname IPs
+            hostname = socket.gethostname()
+            try:
+                local_ips.add(socket.gethostbyname(hostname))
+            except:
+                pass
+            
+            # Get all network interface IPs
+            for interface, addrs in psutil.net_if_addrs().items():
+                for addr in addrs:
+                    if addr.family == socket.AF_INET:  # IPv4
+                        local_ips.add(addr.address)
+            
+            # Add localhost
+            local_ips.add('127.0.0.1')
+            
+            if self.log_callback:
+                self.log_callback(f"🔍 Local IPs detected: {', '.join(sorted(local_ips))}")
+            
+            return local_ips
+        except Exception as e:
+            if self.log_callback:
+                self.log_callback(f"⚠️ Could not detect local IPs: {e}")
+            return {'127.0.0.1'}
+    
+    def start(self):
+        """Start the stateful inspector"""
+        if not self.running:
+            self.running = True
+            self._start_cleanup_thread()
+            if self.log_callback:
+                self.log_callback("🔍 Stateful Inspector Started")
     
     def _start_cleanup_thread(self):
         """Start background thread for connection cleanup"""
+        if self.cleanup_thread and self.cleanup_thread.is_alive():
+            return
+            
         self.running = True
         self.cleanup_thread = threading.Thread(target=self._cleanup_connections, daemon=True)
         self.cleanup_thread.start()
@@ -80,15 +125,16 @@ class StatefulInspector:
                 current_time = datetime.now()
                 expired_connections = []
                 
-                for conn_id, connection in self.connections.items():
+                for conn_id, connection in list(self.connections.items()):
                     if (current_time - connection.last_seen).seconds > self.connection_timeout:
                         expired_connections.append(conn_id)
                 
                 # Remove expired connections
                 expired_count = 0
                 for conn_id in expired_connections:
-                    del self.connections[conn_id]
-                    expired_count += 1
+                    if conn_id in self.connections:
+                        del self.connections[conn_id]
+                        expired_count += 1
                 
                 # Only log summary every 5 minutes or if significant cleanup
                 if expired_count > 0:
@@ -112,6 +158,49 @@ class StatefulInspector:
         """Get reverse connection ID for bidirectional tracking"""
         return f"{dst_ip}:{dst_port}-{src_ip}:{src_port}-{protocol}"
     
+    def _determine_direction(self, packet_info) -> str:
+        """
+        Determine packet direction based on source IP
+        OUT = from local machine to remote
+        IN = from remote to local machine
+        """
+        if packet_info.src_ip in self.local_ips:
+            return "OUT"
+        elif packet_info.dst_ip in self.local_ips:
+            return "IN"
+        else:
+            # If neither is local, check common patterns
+            # Packets from private IPs to public are usually OUT
+            if self._is_private_ip(packet_info.src_ip) and not self._is_private_ip(packet_info.dst_ip):
+                return "OUT"
+            # Default to IN for safety (more restrictive)
+            return "IN"
+    
+    def _is_private_ip(self, ip: str) -> bool:
+        """Check if IP is in private range"""
+        try:
+            parts = [int(p) for p in ip.split('.')]
+            
+            # 10.0.0.0/8
+            if parts[0] == 10:
+                return True
+            
+            # 172.16.0.0/12
+            if parts[0] == 172 and 16 <= parts[1] <= 31:
+                return True
+            
+            # 192.168.0.0/16
+            if parts[0] == 192 and parts[1] == 168:
+                return True
+            
+            # 127.0.0.0/8 (localhost)
+            if parts[0] == 127:
+                return True
+            
+            return False
+        except:
+            return False
+    
     def inspect_packet(self, packet_info) -> Tuple[bool, ConnectionState, Optional[Connection]]:
         """
         Perform stateful inspection on packet
@@ -123,6 +212,16 @@ class StatefulInspector:
         # Only track TCP and UDP connections
         if packet_info.protocol not in ['TCP', 'UDP']:
             return True, ConnectionState.UNTRACKED, None
+        
+        # Ensure ports exist
+        if not hasattr(packet_info, 'src_port') or not hasattr(packet_info, 'dst_port'):
+            return True, ConnectionState.UNTRACKED, None
+        
+        if packet_info.src_port is None or packet_info.dst_port is None:
+            return True, ConnectionState.UNTRACKED, None
+        
+        # Determine direction
+        direction = self._determine_direction(packet_info)
         
         conn_id = self._get_connection_id(
             packet_info.src_ip, packet_info.dst_ip,
@@ -139,43 +238,92 @@ class StatefulInspector:
         
         connection = None
         connection_state = ConnectionState.NEW
+        is_new_connection = False
+        is_reverse_traffic = False
         
-        # Check if connection exists
+        # Check if connection exists (forward direction)
         if conn_id in self.connections:
             connection = self.connections[conn_id]
             connection_state = connection.state
+            
+        # Check if this is return traffic (reverse direction)
         elif reverse_conn_id in self.connections:
             connection = self.connections[reverse_conn_id]
             connection_state = ConnectionState.ESTABLISHED
+            is_reverse_traffic = True
         
         # Update or create connection
         if connection:
             self._update_connection(connection, packet_info)
         else:
-            connection = self._create_connection(packet_info)
+            # New connection
+            connection = self._create_connection(packet_info, direction)
             self.connections[conn_id] = connection
             connection_state = ConnectionState.NEW
+            is_new_connection = True
         
-        # Determine state based on protocol
+        # Determine state based on protocol and flags
         if packet_info.protocol == 'TCP':
-            connection_state = self._determine_tcp_state(connection, packet_info)
+            connection_state = self._determine_tcp_state(connection, packet_info, is_new_connection)
         elif packet_info.protocol == 'UDP':
-            connection_state = self._determine_udp_state(connection, packet_info)
+            connection_state = self._determine_udp_state(connection, is_new_connection)
         
         # Update connection state
+        old_state = connection.state
         connection.state = connection_state
         
-        # For stateful inspection, allow established connections and new outbound connections
-        should_allow = True
-        if packet_info.protocol == 'TCP':
-            should_allow = (connection_state in [ConnectionState.NEW, ConnectionState.ESTABLISHED] and 
-                          packet_info.direction == "OUT") or connection_state == ConnectionState.ESTABLISHED
-        elif packet_info.protocol == 'UDP':
-            should_allow = packet_info.direction == "OUT" or connection_state == ConnectionState.ESTABLISHED
+        # ✅ LOG STATE TRANSITIONS
+        if is_new_connection and conn_id not in self.logged_new_connections:
+            if self.log_callback:
+                self.log_callback(
+                    f"🔵 NEW Connection: {packet_info.src_ip}:{packet_info.src_port} → "
+                    f"{packet_info.dst_ip}:{packet_info.dst_port} ({packet_info.protocol}) [{direction}]"
+                )
+            self.logged_new_connections.add(conn_id)
+        elif old_state != connection_state and connection_state == ConnectionState.ESTABLISHED:
+            if self.log_callback:
+                self.log_callback(
+                    f"🟢 ESTABLISHED: {packet_info.src_ip}:{packet_info.src_port} → "
+                    f"{packet_info.dst_ip}:{packet_info.dst_port} ({packet_info.protocol})"
+                )
+        
+        # Determine if packet should be allowed
+        should_allow = self._should_allow_packet(connection_state, direction, is_reverse_traffic)
         
         return should_allow, connection_state, connection
     
-    def _create_connection(self, packet_info) -> Connection:
+    def _should_allow_packet(self, state: ConnectionState, direction: str, is_reverse: bool) -> bool:
+        """
+        Determine if packet should be allowed based on state and direction
+        
+        Rules:
+        - NEW + OUT: Allow (user initiated)
+        - NEW + IN: Deny (unsolicited inbound)
+        - ESTABLISHED: Allow (both directions)
+        - RELATED: Allow
+        - INVALID: Deny
+        """
+        if state == ConnectionState.ESTABLISHED:
+            return True
+        
+        if state == ConnectionState.RELATED:
+            return True
+        
+        if state == ConnectionState.NEW:
+            # Allow outbound NEW connections (user initiated)
+            if direction == "OUT":
+                return True
+            # Deny inbound NEW connections (unsolicited)
+            else:
+                return False
+        
+        if state == ConnectionState.INVALID:
+            return False
+        
+        # Default: allow
+        return True
+    
+    def _create_connection(self, packet_info, direction: str) -> Connection:
         """Create new connection object"""
         return Connection(
             src_ip=packet_info.src_ip,
@@ -184,7 +332,7 @@ class StatefulInspector:
             dst_port=packet_info.dst_port,
             protocol=packet_info.protocol,
             state=ConnectionState.NEW,
-            is_inbound=packet_info.direction == "IN"
+            is_inbound=(direction == "IN")
         )
     
     def _update_connection(self, connection: Connection, packet_info):
@@ -192,36 +340,67 @@ class StatefulInspector:
         connection.last_seen = datetime.now()
         connection.packet_count += 1
         
-        if packet_info.direction == "IN":
-            connection.bytes_received += packet_info.packet_size
-        else:
-            connection.bytes_sent += packet_info.packet_size
+        # Update bytes
+        packet_size = getattr(packet_info, 'packet_size', 0)
+        if packet_size:
+            if packet_info.src_ip == connection.src_ip:
+                connection.bytes_sent += packet_size
+            else:
+                connection.bytes_received += packet_size
     
-    def _determine_tcp_state(self, connection: Connection, packet_info) -> ConnectionState:
+    def _determine_tcp_state(self, connection: Connection, packet_info, is_new: bool) -> ConnectionState:
         """Determine TCP connection state based on flags"""
         if not hasattr(packet_info, 'tcp_flags') or not packet_info.tcp_flags:
-            return connection.state
+            # No flags available, use basic state tracking
+            if is_new:
+                return ConnectionState.NEW
+            return ConnectionState.ESTABLISHED
         
-        flags = packet_info.tcp_flags.split(',')
+        flags = packet_info.tcp_flags
+        if isinstance(flags, str):
+            flags = flags.split(',')
         
         # TCP state machine
+        # SYN only = NEW connection attempt
         if 'SYN' in flags and 'ACK' not in flags:
-            if connection.state == ConnectionState.NEW:
-                return ConnectionState.ESTABLISHED
+            connection.tcp_state = TCPState.SYN_SENT
+            return ConnectionState.NEW
+        
+        # SYN+ACK = Server response (connection being established)
         elif 'SYN' in flags and 'ACK' in flags:
-            return ConnectionState.ESTABLISHED
-        elif 'FIN' in flags or 'RST' in flags:
-            return ConnectionState.INVALID
-        elif 'ACK' in flags and connection.state == ConnectionState.ESTABLISHED:
+            connection.tcp_state = TCPState.SYN_RECEIVED
             return ConnectionState.ESTABLISHED
         
-        return connection.state
-    
-    def _determine_udp_state(self, connection: Connection, packet_info) -> ConnectionState:
-        """Determine UDP connection state"""
-        if connection.state == ConnectionState.NEW:
+        # ACK only (after handshake) = Established connection
+        elif 'ACK' in flags and 'SYN' not in flags:
+            if connection.state == ConnectionState.NEW or connection.tcp_state in [TCPState.SYN_SENT, TCPState.SYN_RECEIVED]:
+                connection.tcp_state = TCPState.ESTABLISHED
+                return ConnectionState.ESTABLISHED
+            else:
+                return ConnectionState.ESTABLISHED
+        
+        # FIN or RST = Connection closing/closed
+        elif 'FIN' in flags or 'RST' in flags:
+            connection.tcp_state = TCPState.CLOSED
+            return ConnectionState.INVALID
+        
+        # Default: maintain current state or mark as established if we have packets
+        if connection.packet_count > 2:
             return ConnectionState.ESTABLISHED
-        return ConnectionState.ESTABLISHED
+        
+        return connection.state if connection.state != ConnectionState.NEW else ConnectionState.ESTABLISHED
+    
+    def _determine_udp_state(self, connection: Connection, is_new: bool) -> ConnectionState:
+        """Determine UDP connection state"""
+        # UDP is connectionless, so after first packet we consider it established
+        if is_new:
+            return ConnectionState.NEW
+        
+        # After seeing packets in both directions or multiple packets, consider established
+        if connection.packet_count >= 1:
+            return ConnectionState.ESTABLISHED
+        
+        return ConnectionState.NEW
     
     def get_connection(self, conn_id: str) -> Optional[Connection]:
         """Get connection by ID"""
@@ -276,3 +455,6 @@ class StatefulInspector:
         self.running = False
         if self.cleanup_thread and self.cleanup_thread.is_alive():
             self.cleanup_thread.join(timeout=5)
+        
+        if self.log_callback:
+            self.log_callback("🔍 Stateful Inspector Stopped")
