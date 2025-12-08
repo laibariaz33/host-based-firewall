@@ -320,12 +320,14 @@ class EnhancedFirewall:
         # Start monitoring
         self.monitor.start_monitoring()
 
-        # Start stateful inspector
+        # ✅ FIX 1: Start stateful inspector FIRST before processing packets
         try:
-            if hasattr(self.stateful_inspector, 'start'):
-                self.stateful_inspector.start()
+            self.stateful_inspector.start()  # This enables the logging
+            self.log_callback("🔍 Stateful Inspection: ENABLED")
         except Exception as e:
             self.log_callback(f"⚠️ Stateful inspector error: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Apply default action from config
         try:
@@ -344,12 +346,20 @@ class EnhancedFirewall:
         enabled_count = len(self.rule_engine.get_enabled_rules())
         self.log_callback(f"📋 Active Rules: {enabled_count}/{rule_count}")
         
+        # ✅ FIX 2: Show security features status
+        self.log_callback(f"🔒 Security Features:")
+        self.log_callback(f"   • Stateful Inspection: {'✅' if cfg.enable_stateful_inspection else '❌'}")
+        self.log_callback(f"   • Intrusion Detection: {'✅' if cfg.enable_intrusion_detection else '❌'}")
+        self.log_callback(f"   • DoS Protection: {'✅' if cfg.enable_dos_protection else '❌'}")
+        
         # Start packet capture
         self.capture_thread = threading.Thread(
             target=self._start_packet_capture_with_processing, 
             daemon=True
         )
         self.capture_thread.start()
+        
+        self.log_callback("🔍 Packet Inspection Active")
         
         # Log startup
         self.logger.log_event(FirewallEvent(
@@ -358,7 +368,7 @@ class EnhancedFirewall:
             level=LogLevel.INFO,
             message="Firewall started successfully"
         ))
-    
+        
     def _start_packet_capture_with_processing(self):
         """Start packet capture with integrated processing"""
         try:
@@ -523,17 +533,19 @@ class EnhancedFirewall:
             return False
 
     def process_packet(self, packet_info: PacketInfo) -> tuple[bool, dict]:
-        """Process a packet through rules, stateful inspection, and policy"""
+        """
+        Process a packet through firewall with STATEFUL-FIRST approach
+        Returns: (should_allow, match_info)
+        """
         packet_counted = False
         try:
             self.stats['packets_processed'] += 1
             packet_counted = True
 
-            # ====== Network Policy Check (HIGHEST PRIORITY) ======
+            # ====== PRIORITY 1: Network Policy Check (HIGHEST PRIORITY) ======
             should_continue, net_action, net_reason = self.security_enhancer.check_network_policy(packet_info)
             
             if not should_continue:
-                # Network policy made a decision - apply it immediately
                 if net_action == 'BLOCK':
                     self.stats['packets_blocked'] += 1
                     self.logger.log_packet_blocked(
@@ -553,7 +565,7 @@ class EnhancedFirewall:
                     )
                     return True, {'rule_name': net_reason, 'decision_source': 'network_policy'}
 
-            # ====== DoS Protection Check ======
+            # ====== PRIORITY 2: DoS Protection Check ======
             dos_block, dos_reason = self.security_enhancer.check_dos_protection(packet_info)
             if dos_block:
                 self.stats['packets_blocked'] += 1
@@ -565,7 +577,7 @@ class EnhancedFirewall:
                 )
                 return False, {'rule_name': dos_reason, 'decision_source': 'dos_protection'}
 
-            # ====== Intrusion Detection Check ======
+            # ====== PRIORITY 3: Intrusion Detection Check (Alert Only) ======
             ids_alert, ids_reason = self.security_enhancer.check_intrusion_detection(packet_info)
             if ids_alert:
                 self.logger.log_event(FirewallEvent(
@@ -575,8 +587,8 @@ class EnhancedFirewall:
                     message=f"{ids_reason} from {packet_info.src_ip}"
                 ))
 
-            # ====== Stateful inspection ======
-            stateful_allow = True
+            # ====== PRIORITY 4: Stateful Inspection (NEW PRIORITY) ======
+            stateful_decision = None
             connection_state = None
             connection = None
             
@@ -584,25 +596,48 @@ class EnhancedFirewall:
                 stateful_allow, connection_state, connection = self.stateful_inspector.inspect_packet(packet_info)
                 if connection:
                     self.stats['connections_tracked'] += 1
+                
+                # ✅ STATEFUL MAKES A DECISION FOR CONNECTION-TRACKED TRAFFIC
+                if connection_state in [ConnectionState.NEW, ConnectionState.ESTABLISHED, 
+                                    ConnectionState.RELATED, ConnectionState.INVALID]:
+                    stateful_decision = stateful_allow
 
-            # Rule engine evaluation
+            # ====== PRIORITY 5: Explicit Rules ======
             rule_allow, matching_rule = self.rule_engine.evaluate_packet(packet_info)
             self.stats['rules_evaluated'] += 1
 
-            # Decision precedence: explicit rule > stateful > default
-            if matching_rule:
+            # ====== DECISION LOGIC ======
+            # Priority order: stateful > rule > default
+            
+            if stateful_decision is not None:
+                # Stateful inspection made a decision
+                final_decision = stateful_decision
+                decision_source = 'stateful'
+                rule_name = f"Stateful [{connection_state.value}]" if connection_state else "Stateful"
+                
+                # ⚠️ IMPORTANT: Check if a DENY rule overrides stateful ALLOW
+                if matching_rule and not rule_allow and stateful_decision:
+                    # Explicit DENY rule overrides stateful ALLOW
+                    final_decision = False
+                    decision_source = 'rule_override'
+                    rule_name = matching_rule.name
+                    self.log_callback(f"⚠️ Rule '{matching_rule.name}' overrides stateful ALLOW")
+                
+            elif matching_rule:
+                # Explicit rule (only if stateful didn't decide)
                 final_decision = rule_allow
                 decision_source = 'rule'
-            elif connection_state is not None:
-                final_decision = stateful_allow
-                decision_source = 'stateful'
+                rule_name = matching_rule.name
+                
             else:
+                # Default policy (no stateful, no rule)
                 final_decision = (self.rule_engine.default_action == RuleAction.ALLOW)
                 decision_source = 'default'
+                rule_name = 'Default Policy'
 
             # Prepare match info
             match_info = {
-                'rule_name': getattr(matching_rule, 'name', None) or 'Default Policy',
+                'rule_name': rule_name,
                 'rule_id': getattr(matching_rule, 'id', None),
                 'default_action': self.rule_engine.default_action.value if decision_source == 'default' else None,
                 'connection_state': connection_state.value if connection_state else None,
@@ -613,13 +648,16 @@ class EnhancedFirewall:
             # Update stats
             if final_decision:
                 self.stats['packets_allowed'] += 1
-                reason = match_info['rule_name'] or match_info.get('connection_state') or match_info.get('default_action')
-                self.logger.log_packet_allowed(packet_info.src_ip, packet_info.dst_ip, packet_info.protocol, reason=reason)
+                reason = rule_name
+                self.logger.log_packet_allowed(packet_info.src_ip, packet_info.dst_ip, 
+                                            packet_info.protocol, reason=reason)
             else:
                 self.stats['packets_blocked'] += 1
-                reason = match_info.get('rule_name') or "Default Policy"
-                self.logger.log_packet_blocked(packet_info.src_ip, packet_info.dst_ip, packet_info.protocol, reason=reason)
+                reason = rule_name
+                self.logger.log_packet_blocked(packet_info.src_ip, packet_info.dst_ip, 
+                                            packet_info.protocol, reason=reason)
 
+            # Debug logging (if enabled)
             self._emit_debug_packet_details(
                 packet_info,
                 match_info,
@@ -633,7 +671,7 @@ class EnhancedFirewall:
         except Exception as e:
             self.log_callback(f"❌ Processing error: {e}")
             import traceback
-            traceback.print_exc()  # Print full error for debugging
+            traceback.print_exc()
             
             if packet_counted:
                 self.stats['packets_blocked'] += 1
@@ -653,8 +691,10 @@ class EnhancedFirewall:
             'rule_stats': self.rule_engine.get_rule_statistics(),
             'connection_stats': self.stateful_inspector.get_connection_statistics(),
             'log_stats': self.logger.get_statistics(),
-            'monitor_stats': self.monitor.get_metrics()
+            'monitor_stats': self.monitor.get_metrics(),
+            'security_stats': self.security_enhancer.get_statistics()  # <-- Add this
         }
+
 
 
 # ---------- Enhanced GUI Frontend ----------
@@ -1074,7 +1114,16 @@ class EnhancedFirewallGUI:
             self._insert_text(self.stats_text, f"  Allowed:          {stats['firewall_stats']['packets_allowed']:,}\n")
             self._insert_text(self.stats_text, f"  Blocked:          {stats['firewall_stats']['packets_blocked']:,}\n")
             self._insert_text(self.stats_text, f"  Connections:      {stats['firewall_stats']['connections_tracked']:,}\n\n")
-            
+            self._insert_text(self.stats_text, "\nDoS / IDS Statistics:\n")
+            security_stats = stats.get('security_stats', {})
+            self._insert_text(self.stats_text, f"  DoS Blocked IPs:    {security_stats.get('dos_blocked_ips', 0)}\n")
+            self._insert_text(self.stats_text, f"  DoS Tracked IPs:    {security_stats.get('dos_tracked_ips', 0)}\n")
+            self._insert_text(self.stats_text, f"  IDS Suspicious IPs: {security_stats.get('ids_suspicious_ips', 0)}\n")
+            self._insert_text(self.stats_text, f"  Stateful Inspection: {'✅' if security_stats.get('settings', {}).get('stateful_inspection') else '❌'}\n")
+            self._insert_text(self.stats_text, f"  Intrusion Detection: {'✅' if security_stats.get('settings', {}).get('intrusion_detection') else '❌'}\n")
+            self._insert_text(self.stats_text, f"  DoS Protection:      {'✅' if security_stats.get('settings', {}).get('dos_protection') else '❌'}\n")
+            self._insert_text(self.stats_text, f"  Max Packets/sec:     {security_stats.get('settings', {}).get('max_packets_per_second')}\n")
+                        
             self._insert_text(self.stats_text, "Rule Engine:\n")
             self._insert_text(self.stats_text, f"  Total Rules:      {stats['rule_stats']['total_rules']}\n")
             self._insert_text(self.stats_text, f"  Enabled Rules:    {stats['rule_stats']['enabled_rules']}\n")

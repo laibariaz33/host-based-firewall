@@ -9,11 +9,27 @@
     "dst_ip": "8.8.8.8",
     "src_port": null,
     "dst_port": 53,
-    "enabled": true,
+    "enabled": false,
     "priority": 1,
     "description": "Allow DNS to google",
     "hit_count": 0,
     "created_at": "2025-12-02T01:56:23.377180"
+  },
+  {
+    "id": "rule_5",
+    "name": "Allow DOS test traffic",
+    "action": "ALLOW",
+    "direction": "INBOUND",
+    "protocol": "ICMP",
+    "src_ip": "192.168.0.209",
+    "dst_ip": "192.168.0.216",
+    "src_port": null,
+    "dst_port": null,
+    "enabled": true,
+    "priority": 1,
+    "description": "Optional: Block YouTube (may not work with VPN/DNS changes)",
+    "hit_count": 0,
+    "created_at": "2025-12-03T07:12:36.552120"
   },
   {
     "id": "block_rdp_external",
@@ -28,7 +44,7 @@
     "enabled": true,
     "priority": 5,
     "description": "Critical: Block RDP attacks from internet. Only allow RDP from LAN.",
-    "hit_count": 0,
+    "hit_count": 1,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -44,7 +60,7 @@
     "enabled": true,
     "priority": 5,
     "description": "Critical: Block insecure Telnet protocol. Use SSH instead.",
-    "hit_count": 0,
+    "hit_count": 40,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -60,7 +76,7 @@
     "enabled": true,
     "priority": 5,
     "description": "Critical: Block SMB/CIFS from internet to prevent ransomware.",
-    "hit_count": 0,
+    "hit_count": 2,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -76,7 +92,7 @@
     "enabled": true,
     "priority": 10,
     "description": "Allow all traffic within local network (192.168.x.x)",
-    "hit_count": 510,
+    "hit_count": 7184,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -156,7 +172,7 @@
     "enabled": true,
     "priority": 30,
     "description": "Allow outbound HTTP web browsing (unencrypted)",
-    "hit_count": 138,
+    "hit_count": 212,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -172,13 +188,13 @@
     "enabled": true,
     "priority": 30,
     "description": "Allow incoming HTTP responses",
-    "hit_count": 125,
+    "hit_count": 194,
     "created_at": "2025-11-27T00:00:00"
   },
   {
     "id": "allow_https_out",
     "name": "Allow HTTPS Outbound",
-    "action": "DENY",
+    "action": "ALLOW",
     "direction": "OUTBOUND",
     "protocol": "TCP",
     "src_ip": null,
@@ -188,7 +204,7 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow outbound HTTPS secure web browsing",
-    "hit_count": 2651,
+    "hit_count": 48444,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -204,7 +220,7 @@
     "enabled": true,
     "priority": 35,
     "description": "Essential: Allow incoming HTTPS responses",
-    "hit_count": 496,
+    "hit_count": 54090,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -322,7 +338,7 @@
   {
     "id": "allow_icmp",
     "name": "Allow ICMP Ping",
-    "action": "ALLOW",
+    "action": "DENY",
     "direction": "BOTH",
     "protocol": "ICMP",
     "src_ip": null,
@@ -332,7 +348,7 @@
     "enabled": true,
     "priority": 60,
     "description": "Recommended: Allow ping for network diagnostics",
-    "hit_count": 32,
+    "hit_count": 52,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -348,7 +364,7 @@
     "enabled": false,
     "priority": 70,
     "description": "Optional: Block YouTube (may not work with VPN/DNS changes)",
-    "hit_count": 420,
+    "hit_count": 4104,
     "created_at": "2025-11-27T00:00:00"
   },
   {
@@ -364,7 +380,7 @@
     "enabled": true,
     "priority": 90,
     "description": "Log traffic not matching other rules for analysis",
-    "hit_count": 2479,
+    "hit_count": 35114,
     "created_at": "2025-11-27T00:00:00"
   },
   {
