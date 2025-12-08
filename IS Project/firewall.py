@@ -676,6 +676,11 @@ class EnhancedFirewallGUI:
         self.stats_refresh_interval = 1000  # milliseconds (1 second)
         self.stats_refresh_job = None
         
+        # Monitoring refresh variables
+        self.monitoring_refresh_paused = False
+        self.monitoring_refresh_interval = 1000  # 1 second
+        self.monitoring_refresh_job = None
+        
         # Search variables
         self.search_var = tk.StringVar()
         self.log_level_priority = {
@@ -708,6 +713,9 @@ class EnhancedFirewallGUI:
         self.notebook.add(perf_frame, text="⚡ Performance")
         # Start auto-refresh for statistics
         self._start_stats_auto_refresh()
+        
+        # Start auto-refresh for monitoring
+        self._start_monitoring_auto_refresh()
 
     def _insert_text(self, widget, text):
         """Temporarily enable widget, insert text, then disable it again"""
@@ -953,7 +961,13 @@ class EnhancedFirewallGUI:
         self.connections_text = scrolledtext.ScrolledText(conn_frame, height=15, width=80, state=tk.DISABLED, font=("Consolas", 9))
         self.connections_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        ttk.Button(monitor_frame, text="🔄 Refresh Monitoring", command=self.refresh_monitoring).pack(pady=5)
+        btn_frame = ttk.Frame(monitor_frame)
+        btn_frame.pack(pady=5)
+        
+        ttk.Button(btn_frame, text="🔄 Refresh Monitoring", command=self.refresh_monitoring).pack(side=tk.LEFT, padx=5)
+        
+        self.monitor_pause_btn = ttk.Button(btn_frame, text="⏸ Pause Auto-Refresh", command=self.toggle_monitoring_refresh)
+        self.monitor_pause_btn.pack(side=tk.LEFT, padx=5)
 
    
 
@@ -1103,6 +1117,30 @@ class EnhancedFirewallGUI:
                 
         except Exception as e:
             self.log_message(f"Error refreshing monitoring: {e}")
+
+    def toggle_monitoring_refresh(self):
+        """Toggle pause/resume of monitoring auto-refresh"""
+        self.monitoring_refresh_paused = not self.monitoring_refresh_paused
+        if self.monitoring_refresh_paused:
+            if self.monitoring_refresh_job:
+                self.root.after_cancel(self.monitoring_refresh_job)
+                self.monitoring_refresh_job = None
+            self.monitor_pause_btn.config(text="▶ Resume Auto-Refresh")
+            self.log_message("📡 Monitoring auto-refresh paused")
+        else:
+            self.monitor_pause_btn.config(text="⏸ Pause Auto-Refresh")
+            self.log_message("📡 Monitoring auto-refresh resumed")
+            self._start_monitoring_auto_refresh()
+
+    def _start_monitoring_auto_refresh(self):
+        """Start auto-refresh for monitoring"""
+        if self.monitoring_refresh_job:
+            self.root.after_cancel(self.monitoring_refresh_job)
+            self.monitoring_refresh_job = None
+            
+        if not self.monitoring_refresh_paused:
+            self.refresh_monitoring()
+            self.monitoring_refresh_job = self.root.after(self.monitoring_refresh_interval, self._start_monitoring_auto_refresh)
 
 
 
